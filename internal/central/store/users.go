@@ -37,10 +37,18 @@ type User struct {
 // ValidRole reports whether role is one of the known roles.
 func ValidRole(role string) bool { return role == RoleAdmin || role == RoleViewer }
 
-// AddUser creates an account; the password is already hashed.
-func (s *Store) AddUser(ctx context.Context, username, role, passwordHash string) error {
+// ValidateUsername reports why a name cannot be given to an account.
+func ValidateUsername(username string) error {
 	if !usernamePattern.MatchString(username) {
 		return fmt.Errorf("username %q: use 1 to 64 lowercase letters, digits, dots, dashes or underscores, starting with a letter or digit", username)
+	}
+	return nil
+}
+
+// AddUser creates an account; the password is already hashed.
+func (s *Store) AddUser(ctx context.Context, username, role, passwordHash string) error {
+	if err := ValidateUsername(username); err != nil {
+		return err
 	}
 	if !ValidRole(role) {
 		return fmt.Errorf("role %q: want %s or %s", role, RoleAdmin, RoleViewer)

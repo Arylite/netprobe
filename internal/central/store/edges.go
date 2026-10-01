@@ -41,11 +41,19 @@ type Edge struct {
 // Active reports whether the edge may still authenticate.
 func (e Edge) Active() bool { return e.RevokedAt == nil }
 
+// ValidateEdgeName reports why a name cannot be given to an edge.
+func ValidateEdgeName(name string) error {
+	if !namePattern.MatchString(name) {
+		return fmt.Errorf("edge name %q: use 1 to 63 lowercase letters, digits or dashes, starting with a letter or digit", name)
+	}
+	return nil
+}
+
 // AddEdge registers an edge and returns its token, which is not stored and
 // cannot be shown again.
 func (s *Store) AddEdge(ctx context.Context, name string) (Edge, string, error) {
-	if !namePattern.MatchString(name) {
-		return Edge{}, "", fmt.Errorf("edge name %q: use 1 to 63 lowercase letters, digits or dashes, starting with a letter or digit", name)
+	if err := ValidateEdgeName(name); err != nil {
+		return Edge{}, "", err
 	}
 	token, err := newToken()
 	if err != nil {
