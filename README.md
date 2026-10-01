@@ -4,10 +4,9 @@ Network probing for a fleet of machines. **Edges** measure the network from wher
 they are; a **central** assigns their checks, stores the results, alerts, and
 shows them in a web UI.
 
-Status: 0.2. An edge polls a central for its checks and posts results; the central
-keeps everything in memory and has no authentication yet, so it listens on
-loopback by default and warns when it is bound anywhere else. The edge does not
-run any probe yet.
+Status: 0.3. An edge authenticates with its own token, polls a central for its
+checks and posts results. The central keeps results in memory and the list of
+edges in a file; the edge does not run any probe yet.
 
 ## Architecture
 
@@ -41,6 +40,7 @@ internal/cli           environment defaults and logging for the commands
 internal/probe         network measurements
 internal/edge          the agent: scheduler, buffer, central client
 internal/central       the server: edge API, web API, storage, alerting
+internal/central/registry  edges and the hashes of their tokens
 internal/version       build information
 ```
 
@@ -53,12 +53,33 @@ Dependencies go one way: `cmd` -> `edge` or `central` -> `api` and `probe`.
 ```sh
 make build
 echo '{"checks":[{"id":"web","kind":"http","target":"https://example.com","interval_seconds":30}]}' > checks.json
-bin/netprobe-central --checks-file checks.json     # 127.0.0.1:8080
-bin/netprobe-edge --central http://127.0.0.1:8080  # in another terminal
+
+bin/netprobe-central edge add --name paris          # prints the token, once
+bin/netprobe-central serve --checks-file checks.json # 127.0.0.1:8080
+
+NETPROBE_TOKEN=np_... bin/netprobe-edge --central http://127.0.0.1:8080
 ```
 
+`edge list` shows the edges and `edge revoke --name paris` cuts one off within a
+second, even while the central runs.
+
+## Security model
+
+- Each edge has its own random token. The central stores only its SHA-256 hash,
+  in `edges.json` (mode 0600) under `--data-dir`. A token is shown once, when it
+  is created.
+- The token goes to the edge through `NETPROBE_TOKEN` or `--token-file`, never a
+  flag: command lines are visible to every user of the machine.
+- The central speaks plain HTTP and expects a TLS reverse proxy in front of it
+  when it is reachable from a network. It listens on loopback by default and
+  warns when it is bound elsewhere.
+- The edge refuses to send its token over plain HTTP to anything but this
+  machine: a remote central must be an `https://` URL.
+- `GET /healthz` needs no token; everything under `/v1/` does.
+
 Every flag has a `NETPROBE_*` variable: `NETPROBE_LISTEN`, `NETPROBE_CHECKS_FILE`,
-`NETPROBE_CENTRAL`, `NETPROBE_POLL_INTERVAL`, `NETPROBE_LOG_LEVEL`.
+`NETPROBE_DATA_DIR`, `NETPROBE_CENTRAL`, `NETPROBE_TOKEN`, `NETPROBE_TOKEN_FILE`,
+`NETPROBE_POLL_INTERVAL`, `NETPROBE_LOG_LEVEL`.
 
 ## Develop
 
