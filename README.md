@@ -4,9 +4,10 @@ Network probing for a fleet of machines. **Edges** measure the network from wher
 they are; a **central** assigns their checks, stores the results, alerts, and
 shows them in a web UI.
 
-Status: 0.3. An edge authenticates with its own token, polls a central for its
-checks and posts results. The central keeps results in memory and the list of
-edges in a file; the edge does not run any probe yet.
+Status: 0.4. An edge authenticates with its own token, polls the central for its
+checks, runs them (TCP connect time, HTTP response time) and reports the results
+in batches. The central keeps results in memory and the list of edges in a file;
+there is no way to read results back yet.
 
 ## Architecture
 
@@ -37,7 +38,7 @@ cmd/netprobe-edge      agent entry point
 e2e                    edge and central tested together
 internal/api           wire contract between edge and central
 internal/cli           environment defaults and logging for the commands
-internal/probe         network measurements
+internal/probe         network measurements and the policy on what they may reach
 internal/edge          the agent: scheduler, buffer, central client
 internal/central       the server: edge API, web API, storage, alerting
 internal/central/registry  edges and the hashes of their tokens
@@ -52,7 +53,7 @@ Dependencies go one way: `cmd` -> `edge` or `central` -> `api` and `probe`.
 
 ```sh
 make build
-echo '{"checks":[{"id":"web","kind":"http","target":"https://example.com","interval_seconds":30}]}' > checks.json
+echo '{"checks":[{"id":"web","kind":"http","target":"https://example.com","interval_seconds":30},{"id":"ssh","kind":"tcp","target":"example.com:22","interval_seconds":10}]}' > checks.json
 
 bin/netprobe-central edge add --name paris          # prints the token, once
 bin/netprobe-central serve --checks-file checks.json # 127.0.0.1:8080
@@ -76,10 +77,20 @@ second, even while the central runs.
 - The edge refuses to send its token over plain HTTP to anything but this
   machine: a remote central must be an `https://` URL.
 - `GET /healthz` needs no token; everything under `/v1/` does.
+- The central decides what an edge probes, so a compromised central must not be
+  able to turn edges against their own network. At dial time, after name
+  resolution (so redirects and DNS tricks are covered), an edge refuses
+  loopback, link-local (cloud metadata services live there), unspecified and
+  multicast addresses. Private ranges stay allowed: probing an intranet is the
+  point. `--deny` takes other CIDRs, or `none` to allow everything.
+- Results wait in memory, at most 10 000, while the central is unreachable; the
+  oldest go first. A batch the central refuses as invalid is dropped rather than
+  retried forever. On shutdown the edge stops measuring, then sends what is left.
 
 Every flag has a `NETPROBE_*` variable: `NETPROBE_LISTEN`, `NETPROBE_CHECKS_FILE`,
 `NETPROBE_DATA_DIR`, `NETPROBE_CENTRAL`, `NETPROBE_TOKEN`, `NETPROBE_TOKEN_FILE`,
-`NETPROBE_POLL_INTERVAL`, `NETPROBE_LOG_LEVEL`.
+`NETPROBE_POLL_INTERVAL`, `NETPROBE_REPORT_INTERVAL`, `NETPROBE_DENY`,
+`NETPROBE_LOG_LEVEL`.
 
 ## Develop
 
