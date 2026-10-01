@@ -4,10 +4,10 @@ Network probing for a fleet of machines. **Edges** measure the network from wher
 they are; a **central** assigns their checks, stores the results, alerts, and
 shows them in a web UI.
 
-Status: 0.4. An edge authenticates with its own token, polls the central for its
+Status: 0.5. An edge authenticates with its own token, polls the central for its
 checks, runs them (TCP connect time, HTTP response time) and reports the results
-in batches. The central keeps results in memory and the list of edges in a file;
-there is no way to read results back yet.
+in batches. Edges, checks and results live in PostgreSQL with TimescaleDB; there
+is no way to read results back over HTTP yet.
 
 ## Architecture
 
@@ -41,7 +41,7 @@ internal/cli           environment defaults and logging for the commands
 internal/probe         network measurements and the policy on what they may reach
 internal/edge          the agent: scheduler, buffer, central client
 internal/central       the server: edge API, web API, storage, alerting
-internal/central/registry  edges and the hashes of their tokens
+internal/central/store  PostgreSQL: migrations, edges, checks, results
 internal/version       build information
 ```
 
@@ -52,28 +52,33 @@ Dependencies go one way: `cmd` -> `edge` or `central` -> `api` and `probe`.
 ## Try it
 
 ```sh
-make build
-echo '{"checks":[{"id":"web","kind":"http","target":"https://example.com","interval_seconds":30},{"id":"ssh","kind":"tcp","target":"example.com:22","interval_seconds":10}]}' > checks.json
+make build dev-db        # binaries, and a TimescaleDB on 127.0.0.1:5432
+export NETPROBE_DATABASE_URL='postgres://netprobe:netprobe@127.0.0.1:5432/netprobe?sslmode=disable'
 
+bin/netprobe-central check add --id web --kind http --target https://example.com --interval 30
 bin/netprobe-central edge add --name paris          # prints the token, once
-bin/netprobe-central serve --checks-file checks.json # 127.0.0.1:8080
+bin/netprobe-central serve                          # 127.0.0.1:8080
 
 NETPROBE_TOKEN=np_... bin/netprobe-edge --central http://127.0.0.1:8080
 ```
 
-`edge list` shows the edges and `edge revoke --name paris` cuts one off within a
-second, even while the central runs.
+The central applies its migrations on start. `edge list` and `check list` show
+what is registered, `edge revoke --name paris` cuts an edge off at once.
+
+Results go to a TimescaleDB hypertable, compressed after 7 days and kept until
+you delete them. The extension must be creatable by the database user.
 
 ## Security model
 
-- Each edge has its own random token. The central stores only its SHA-256 hash,
-  in `edges.json` (mode 0600) under `--data-dir`. A token is shown once, when it
-  is created.
+- Each edge has its own random token. The central stores only its SHA-256 hash
+  in the database. A token is shown once, when it is created.
 - The token goes to the edge through `NETPROBE_TOKEN` or `--token-file`, never a
   flag: command lines are visible to every user of the machine.
 - The central speaks plain HTTP and expects a TLS reverse proxy in front of it
   when it is reachable from a network. It listens on loopback by default and
   warns when it is bound elsewhere.
+- A failure of the database is answered 503, never 401: an edge must not
+  conclude that its token was refused when the central is the one in trouble.
 - The edge refuses to send its token over plain HTTP to anything but this
   machine: a remote central must be an `https://` URL.
 - `GET /healthz` needs no token; everything under `/v1/` does.
@@ -87,8 +92,8 @@ second, even while the central runs.
   oldest go first. A batch the central refuses as invalid is dropped rather than
   retried forever. On shutdown the edge stops measuring, then sends what is left.
 
-Every flag has a `NETPROBE_*` variable: `NETPROBE_LISTEN`, `NETPROBE_CHECKS_FILE`,
-`NETPROBE_DATA_DIR`, `NETPROBE_CENTRAL`, `NETPROBE_TOKEN`, `NETPROBE_TOKEN_FILE`,
+Every flag has a `NETPROBE_*` variable: `NETPROBE_LISTEN`, `NETPROBE_DATABASE_URL`,
+`NETPROBE_CENTRAL`, `NETPROBE_TOKEN`, `NETPROBE_TOKEN_FILE`,
 `NETPROBE_POLL_INTERVAL`, `NETPROBE_REPORT_INTERVAL`, `NETPROBE_DENY`,
 `NETPROBE_LOG_LEVEL`.
 
@@ -96,7 +101,8 @@ Every flag has a `NETPROBE_*` variable: `NETPROBE_LISTEN`, `NETPROBE_CHECKS_FILE
 
 ```sh
 make build    # binaries in bin/
-make test     # tests with the race detector
+make test     # tests with the race detector (database tests are skipped)
+make test-db  # all tests, against the database of make dev-db
 make lint     # go vet and golangci-lint
 make help     # everything else
 ```
