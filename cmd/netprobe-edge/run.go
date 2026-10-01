@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -16,7 +17,7 @@ import (
 
 const minPollInterval = time.Second
 
-func run(central string, poll time.Duration, level string) error {
+func run(central, tokenFile string, poll time.Duration, level string) error {
 	if central == "" {
 		return errors.New("set --central or NETPROBE_CENTRAL")
 	}
@@ -27,7 +28,11 @@ func run(central string, poll time.Duration, level string) error {
 	if err != nil {
 		return err
 	}
-	client, err := edge.NewClient(central, "")
+	token, err := readToken(tokenFile)
+	if err != nil {
+		return err
+	}
+	client, err := edge.NewClient(central, token)
 	if err != nil {
 		return err
 	}
@@ -38,4 +43,22 @@ func run(central string, poll time.Duration, level string) error {
 	(&edge.Agent{Client: client, Interval: poll, Log: log}).Run(ctx)
 	log.Info("edge stopped")
 	return nil
+}
+
+// readToken takes the token from the file when one is given, else from
+// NETPROBE_TOKEN. It is never a flag: command lines are visible to every user.
+func readToken(file string) (string, error) {
+	token := os.Getenv("NETPROBE_TOKEN")
+	if file != "" {
+		raw, err := os.ReadFile(file)
+		if err != nil {
+			return "", fmt.Errorf("read token file: %w", err)
+		}
+		token = string(raw)
+	}
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return "", errors.New("no token: set NETPROBE_TOKEN or --token-file")
+	}
+	return token, nil
 }

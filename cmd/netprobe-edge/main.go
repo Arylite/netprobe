@@ -18,6 +18,7 @@ func main() {
 		fail(err)
 	}
 	central := flag.String("central", cli.Getenv("NETPROBE_CENTRAL", ""), "URL of the central, http(s)://host[:port] (NETPROBE_CENTRAL)")
+	tokenFile := flag.String("token-file", cli.Getenv("NETPROBE_TOKEN_FILE", ""), "file holding the token, or set NETPROBE_TOKEN (NETPROBE_TOKEN_FILE)")
 	poll := flag.Duration("poll-interval", pollDefault, "time between two polls (NETPROBE_POLL_INTERVAL)")
 	level := flag.String("log-level", cli.Getenv("NETPROBE_LOG_LEVEL", "info"), "debug, info, warn or error (NETPROBE_LOG_LEVEL)")
 	showVersion := flag.Bool("version", false, "print the version and exit")
@@ -27,7 +28,7 @@ func main() {
 		fmt.Println("netprobe-edge", version.String())
 		return
 	}
-	if err := run(*central, *poll, *level); err != nil {
+	if err := run(*central, *tokenFile, *poll, *level); err != nil {
 		fail(err)
 	}
 }
