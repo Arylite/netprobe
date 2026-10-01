@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -55,4 +56,24 @@ func (s *Store) RecentResults(ctx context.Context, checkID string, limit int) ([
 		out = append(out, r)
 	}
 	return out, rows.Err()
+}
+
+// LastResultPerEdge returns when each edge last reported. An edge that never
+// reported is absent.
+func (s *Store) LastResultPerEdge(ctx context.Context) (map[string]time.Time, error) {
+	rows, err := s.pool.Query(ctx, `SELECT edge_id, max(at) FROM results GROUP BY edge_id`)
+	if err != nil {
+		return nil, fmt.Errorf("read last results: %w", err)
+	}
+	defer rows.Close()
+	last := map[string]time.Time{}
+	for rows.Next() {
+		var id string
+		var at time.Time
+		if err := rows.Scan(&id, &at); err != nil {
+			return nil, fmt.Errorf("read last results: %w", err)
+		}
+		last[id] = at
+	}
+	return last, rows.Err()
 }

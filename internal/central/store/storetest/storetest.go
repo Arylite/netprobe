@@ -25,6 +25,19 @@ func Open(t *testing.T) *store.Store {
 // OpenURL is Open, and also returns the URL of the throwaway database.
 func OpenURL(t *testing.T) (*store.Store, string) {
 	t.Helper()
+	url := EmptyDatabase(t)
+	s, err := store.Open(context.Background(), url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(s.Close)
+	return s, url
+}
+
+// EmptyDatabase creates a throwaway database with nothing in it, and returns
+// its URL. It is dropped when the test ends.
+func EmptyDatabase(t *testing.T) string {
+	t.Helper()
 	base := os.Getenv("NETPROBE_TEST_DATABASE_URL")
 	if base == "" {
 		t.Skip("NETPROBE_TEST_DATABASE_URL is not set")
@@ -41,20 +54,15 @@ func OpenURL(t *testing.T) (*store.Store, string) {
 	if _, err := admin.Exec(ctx, "CREATE DATABASE "+name); err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() {
+		_, _ = admin.Exec(ctx, "DROP DATABASE "+name+" WITH (FORCE)")
+		_ = admin.Close(ctx)
+	})
 
 	u, err := url.Parse(base)
 	if err != nil {
 		t.Fatal(err)
 	}
 	u.Path = "/" + name
-	s, err := store.Open(ctx, u.String())
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		s.Close()
-		_, _ = admin.Exec(ctx, "DROP DATABASE "+name+" WITH (FORCE)")
-		_ = admin.Close(ctx)
-	})
-	return s, u.String()
+	return u.String()
 }

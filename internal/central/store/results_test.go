@@ -128,3 +128,26 @@ func TestRecentResultsLimitIsBounded(t *testing.T) {
 		t.Fatalf("a negative limit returned %d rows", len(got))
 	}
 }
+
+func TestLastResultPerEdge(t *testing.T) {
+	s := storetest.Open(t)
+	ctx := context.Background()
+	paris, _, _ := s.AddEdge(ctx, "paris")
+	lyon, _, _ := s.AddEdge(ctx, "lyon")
+	_, _, _ = s.AddEdge(ctx, "silent")
+
+	base := time.Now().UTC().Truncate(time.Millisecond)
+	_ = s.InsertResults(ctx, paris.ID, []api.Result{
+		{CheckID: "web", At: base.Add(-time.Hour), OK: true},
+		{CheckID: "web", At: base.Add(-time.Minute), OK: true},
+	})
+	_ = s.InsertResults(ctx, lyon.ID, []api.Result{{CheckID: "web", At: base.Add(-time.Second), OK: true}})
+
+	last, err := s.LastResultPerEdge(ctx)
+	if err != nil || len(last) != 2 {
+		t.Fatalf("LastResultPerEdge() = %v, %v", last, err)
+	}
+	if !last[paris.ID].Equal(base.Add(-time.Minute)) || !last[lyon.ID].Equal(base.Add(-time.Second)) {
+		t.Fatalf("times: %v", last)
+	}
+}
