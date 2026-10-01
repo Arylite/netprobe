@@ -85,3 +85,21 @@ func TestVersionAndHelp(t *testing.T) {
 		t.Fatalf("help: %q, %v", out, err)
 	}
 }
+
+func TestDoctorCommand(t *testing.T) {
+	st, url := storetest.OpenURL(t)
+	if _, _, err := st.AddEdge(context.Background(), "paris"); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := runCLI(t, "doctor", "--database-url", url, "--listen", "127.0.0.1:8080")
+	if err != nil || !strings.Contains(out, "ok    database") || !strings.Contains(out, "never reported") {
+		t.Fatalf("doctor: %v\n%s", err, out)
+	}
+
+	t.Setenv("NETPROBE_DATABASE_URL", "")
+	out, err = runCLI(t, "doctor", "--listen", "127.0.0.1:8080")
+	if !errors.Is(err, errChecksFailed) || !strings.Contains(out, "FAIL  database") {
+		t.Fatalf("doctor without a database: %v\n%s", err, out)
+	}
+}

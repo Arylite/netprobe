@@ -21,6 +21,7 @@ commands:
                            assign a check to every edge
   check list               list the checks
   check remove --id ID     stop assigning a check (its results are kept)
+  doctor                   check the setup and say what is wrong
   version                  print the version
 
 Every command takes -h for its flags.
@@ -32,6 +33,8 @@ func main() {
 	err := dispatch(os.Args[1:], os.Stdout)
 	switch {
 	case err == nil, errors.Is(err, flag.ErrHelp):
+	case errors.Is(err, errChecksFailed):
+		os.Exit(1)
 	case errors.Is(err, errUsage):
 		fmt.Fprint(os.Stderr, usage)
 		os.Exit(2)
@@ -52,6 +55,8 @@ func dispatch(args []string, out io.Writer) error {
 		return edgeCommand(args[1:], out)
 	case "check":
 		return checkCommand(args[1:], out)
+	case "doctor":
+		return doctorCommand(args[1:], out)
 	case "version", "--version":
 		fmt.Fprintln(out, "netprobe-central", version.String())
 		return nil
