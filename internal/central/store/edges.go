@@ -118,12 +118,16 @@ func (s *Store) AuthenticateEdge(ctx context.Context, token string) (edge Edge, 
 	return edge, true, nil
 }
 
-func newToken() (string, error) {
+func newToken() (string, error) { return newTokenWith(tokenPrefix) }
+
+// newTokenWith returns 256 random bits behind a prefix that tells what the
+// token is for.
+func newTokenWith(prefix string) (string, error) {
 	b := make([]byte, tokenByteSize)
 	if _, err := rand.Read(b); err != nil {
 		return "", fmt.Errorf("generate token: %w", err)
 	}
-	return tokenPrefix + base64.RawURLEncoding.EncodeToString(b), nil
+	return prefix + base64.RawURLEncoding.EncodeToString(b), nil
 }
 
 func randomHex(n int) (string, error) {
