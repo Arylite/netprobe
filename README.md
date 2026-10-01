@@ -12,10 +12,14 @@ is no way to read results back over HTTP yet.
 ## Architecture
 
 ```
-edge (Go) --- HTTPS + token: poll assignments, post results ---> central (Go, UI embedded) ---> Postgres / TimescaleDB
-                                                                      ^
-                                                          browser (session cookie, same origin)
+edge (Go) --- HTTPS + token: poll assignments, post results ---> central (Go) ---> Postgres / TimescaleDB
+                                                                    ^
+                                        web UI (separate app) --- HTTPS + bearer token, JSON API
 ```
+
+- The central serves two APIs and no files: the edge API and, from 0.7, an API
+  for the web UI. The UI is a separate client, hosted anywhere (static files, its
+  own server), and talks to the central like any other client.
 
 - Edges only dial out. They poll `GET /assignments` and post results in batches;
   the poll is also the heartbeat. Plain HTTPS and JSON: it passes any reverse
@@ -24,8 +28,9 @@ edge (Go) --- HTTPS + token: poll assignments, post results ---> central (Go, UI
   TLS certificate.
 - The central reads the edge address from the request (with explicit trusted
   proxies): no STUN.
-- The edge API and the web surface are separate listeners, so they can face
-  different networks.
+- The two APIs are separate listeners, so they can face different networks: the
+  edge API on the internet, the UI API on an intranet. The UI API authenticates
+  with bearer tokens, not cookies, and answers only the origins it is told to.
 - Configuration comes from environment variables, with the same names everywhere.
 - A `doctor` command on both sides checks DNS, TLS, token, clock, database and
   proxies, and says what is wrong.
