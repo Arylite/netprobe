@@ -23,6 +23,16 @@ const (
 // ErrUnauthorized is returned when the central refuses the token.
 var ErrUnauthorized = errors.New("the central refused the token")
 
+// StatusError is an answer of the central that is neither a success nor an
+// authentication failure.
+type StatusError struct {
+	Op     string
+	Code   int
+	Status string
+}
+
+func (e *StatusError) Error() string { return e.Op + ": " + e.Status }
+
 // Client talks to the edge API of the central.
 type Client struct {
 	base  *url.URL
@@ -122,7 +132,7 @@ func (c *Client) PostResults(ctx context.Context, results []api.Result) error {
 		return fmt.Errorf("post results: %w", ErrUnauthorized)
 	}
 	if res.StatusCode != http.StatusNoContent {
-		return fmt.Errorf("post results: %s", res.Status)
+		return &StatusError{Op: "post results", Code: res.StatusCode, Status: res.Status}
 	}
 	return nil
 }
