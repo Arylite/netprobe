@@ -6,11 +6,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"net"
 	"net/http"
-	"strings"
 
 	"github.com/Arylite/netprobe/internal/api"
+	"github.com/Arylite/netprobe/internal/central/auth"
 	"github.com/Arylite/netprobe/internal/central/store"
 )
 
@@ -48,7 +47,7 @@ func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 // authenticated runs next for requests that carry the token of an active edge.
 func (s *Server) authenticated(next func(http.ResponseWriter, *http.Request, store.Edge)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		token, ok := bearerToken(r)
+		token, ok := auth.BearerToken(r)
 		var edge store.Edge
 		if ok {
 			var err error
@@ -59,30 +58,13 @@ func (s *Server) authenticated(next func(http.ResponseWriter, *http.Request, sto
 			}
 		}
 		if !ok {
-			s.log.Debug("unauthorized request", "path", r.URL.Path, "client_ip", connectionHost(r))
+			s.log.Debug("unauthorized request", "path", r.URL.Path, "client_ip", auth.PeerHost(r))
 			w.Header().Set("WWW-Authenticate", "Bearer")
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
 		next(w, r, edge)
 	}
-}
-
-func bearerToken(r *http.Request) (string, bool) {
-	scheme, token, found := strings.Cut(r.Header.Get("Authorization"), " ")
-	if !found || !strings.EqualFold(scheme, "Bearer") || token == "" {
-		return "", false
-	}
-	return token, true
-}
-
-// connectionHost is the address of the peer, not of a client behind a proxy.
-func connectionHost(r *http.Request) string {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
-	}
-	return host
 }
 
 // unavailable answers 503 for a failure of the database, which is the central's
