@@ -11,9 +11,11 @@ import (
 // Info describes a database as it is, without changing it.
 type Info struct {
 	ServerVersion    string
-	TimescaleVersion string // empty when the extension is not installed
-	SchemaVersion    int    // 0 when no migration was applied
-	LatestVersion    int    // the newest migration this binary knows
+	TimescaleVersion string // empty when the extension is not created in this database
+	// TimescaleAvailable tells whether the server has the extension at all.
+	TimescaleAvailable bool
+	SchemaVersion      int // 0 when no migration was applied
+	LatestVersion      int // the newest migration this binary knows
 }
 
 // Inspect reads the state of a database without migrating it, which is what a
@@ -32,6 +34,10 @@ func Inspect(ctx context.Context, url string) (Info, error) {
 	err = conn.QueryRow(ctx, `SELECT extversion FROM pg_extension WHERE extname = 'timescaledb'`).Scan(&info.TimescaleVersion)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return Info{}, fmt.Errorf("read the TimescaleDB version: %w", err)
+	}
+
+	if err := conn.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'timescaledb')`).Scan(&info.TimescaleAvailable); err != nil {
+		return Info{}, fmt.Errorf("read the available extensions: %w", err)
 	}
 
 	var hasTable bool

@@ -35,7 +35,7 @@ func TestInspectDoesNotMigrate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.ServerVersion == "" || info.SchemaVersion != 0 || info.LatestVersion < 1 {
+	if info.ServerVersion == "" || info.SchemaVersion != 0 || info.LatestVersion < 1 || !info.TimescaleAvailable {
 		t.Fatalf("empty database: %+v", info)
 	}
 	again, _ := store.Inspect(context.Background(), url)
