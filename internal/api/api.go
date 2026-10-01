@@ -23,7 +23,7 @@ const (
 // Limits shared by both sides.
 const (
 	MaxResultsPerBatch = 1000
-	maxErrorLength     = 512
+	MaxErrorLength     = 512
 )
 
 // Check is one measurement an edge runs on a schedule.
@@ -77,8 +77,8 @@ func (r Result) Validate() error {
 		return fmt.Errorf("result of %s: time is missing", r.CheckID)
 	case math.IsNaN(r.RTTMillis) || math.IsInf(r.RTTMillis, 0) || r.RTTMillis < 0:
 		return fmt.Errorf("result of %s: invalid round-trip time", r.CheckID)
-	case len(r.Error) > maxErrorLength:
-		return fmt.Errorf("result of %s: error is longer than %d bytes", r.CheckID, maxErrorLength)
+	case len(r.Error) > MaxErrorLength:
+		return fmt.Errorf("result of %s: error is longer than %d bytes", r.CheckID, MaxErrorLength)
 	}
 	return nil
 }

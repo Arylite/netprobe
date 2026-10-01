@@ -44,7 +44,7 @@ func TestResultValidate(t *testing.T) {
 		{"no time", func(r *Result) { r.At = time.Time{} }, false},
 		{"negative rtt", func(r *Result) { r.RTTMillis = -1 }, false},
 		{"nan rtt", func(r *Result) { r.RTTMillis = math.NaN() }, false},
-		{"long error", func(r *Result) { r.Error = strings.Repeat("x", maxErrorLength+1) }, false},
+		{"long error", func(r *Result) { r.Error = strings.Repeat("x", MaxErrorLength+1) }, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
