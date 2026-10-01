@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -18,6 +19,16 @@ const (
 )
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "doctor" {
+		if err := doctorCommand(os.Args[2:], os.Stdout); err != nil {
+			if !errors.Is(err, errChecksFailed) && !errors.Is(err, flag.ErrHelp) {
+				fmt.Fprintln(os.Stderr, "netprobe-edge:", err)
+			}
+			os.Exit(1)
+		}
+		return
+	}
+	flag.Usage = usage
 	pollDefault, err := cli.GetenvDuration("NETPROBE_POLL_INTERVAL", defaultPollInterval)
 	if err != nil {
 		fail(err)
@@ -49,4 +60,11 @@ func main() {
 func fail(err error) {
 	fmt.Fprintln(os.Stderr, "netprobe-edge:", err)
 	os.Exit(1)
+}
+
+func usage() {
+	fmt.Fprintln(flag.CommandLine.Output(), "usage: netprobe-edge [flags]")
+	fmt.Fprintln(flag.CommandLine.Output(), "       netprobe-edge doctor [flags]   check the setup and say what is wrong")
+	fmt.Fprintln(flag.CommandLine.Output())
+	flag.PrintDefaults()
 }
