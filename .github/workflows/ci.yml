@@ -1,50 +1,48 @@
 name: CI
 
+# What runs, and in which order. The work itself lives in the reusable
+# workflows next to this file.
+#
+#   lint ---+
+#   test ---+--> build --> ci (the one check to require)
+#   vuln ---+
+
 on:
   push:
     branches: [main]
   pull_request:
 
-permissions:
-  contents: read
-
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    services:
-      db:
-        image: timescale/timescaledb:2.30.1-pg18
-        env:
-          POSTGRES_USER: netprobe
-          POSTGRES_PASSWORD: netprobe
-          POSTGRES_DB: netprobe
-        ports: ["5432:5432"]
-        options: >-
-          --health-cmd "pg_isready -U netprobe"
-          --health-interval 5s
-          --health-retries 20
-    env:
-      NETPROBE_TEST_DATABASE_URL: postgres://netprobe:netprobe@localhost:5432/netprobe?sslmode=disable
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
-        with:
-          go-version-file: go.mod
-      - run: go build ./...
-      - run: go test -race ./...
+permissions:
+  contents: read
 
+jobs:
   lint:
-    runs-on: ubuntu-latest
+    uses: ./.github/workflows/lint.yml
+
+  test:
+    uses: ./.github/workflows/test.yml
+
+  vuln:
+    uses: ./.github/workflows/vuln.yml
+
+  build:
+    needs: [lint, test]
+    uses: ./.github/workflows/build.yml
+
+  ci:
+    name: ci
+    if: always()
+    needs: [lint, test, vuln, build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 1
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
-        with:
-          go-version-file: go.mod
-      - run: go mod tidy && git diff --exit-code go.mod
-      - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9
-        with:
-          version: v2.14.0
+      - name: Every stage passed
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "results: $RESULTS"
+          case " $RESULTS " in *" failure "*|*" cancelled "*|*" skipped "*) exit 1 ;; esac
