@@ -1,28 +1,57 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 
-	"github.com/Arylite/netprobe/internal/cli"
 	"github.com/Arylite/netprobe/internal/version"
 )
 
-func main() {
-	listen := flag.String("listen", cli.Getenv("NETPROBE_LISTEN", "127.0.0.1:8080"), "address of the edge API (NETPROBE_LISTEN)")
-	dataDir := flag.String("data-dir", cli.Getenv("NETPROBE_DATA_DIR", "data"), "directory holding the registry of edges (NETPROBE_DATA_DIR)")
-	checksFile := flag.String("checks-file", cli.Getenv("NETPROBE_CHECKS_FILE", ""), "JSON file listing the checks to assign (NETPROBE_CHECKS_FILE)")
-	level := flag.String("log-level", cli.Getenv("NETPROBE_LOG_LEVEL", "info"), "debug, info, warn or error (NETPROBE_LOG_LEVEL)")
-	showVersion := flag.Bool("version", false, "print the version and exit")
-	flag.Parse()
+const usage = `usage: netprobe-central <command> [flags]
 
-	if *showVersion {
-		fmt.Println("netprobe-central", version.String())
-		return
-	}
-	if err := run(*listen, *checksFile, *dataDir, *level); err != nil {
+commands:
+  serve                    run the central
+  edge add --name NAME     register an edge and print its token (shown once)
+  edge list                list the edges
+  edge revoke --name NAME  cut an edge off
+  version                  print the version
+
+Every command takes -h for its flags.
+`
+
+var errUsage = errors.New("usage")
+
+func main() {
+	err := dispatch(os.Args[1:], os.Stdout)
+	switch {
+	case err == nil, errors.Is(err, flag.ErrHelp):
+	case errors.Is(err, errUsage):
+		fmt.Fprint(os.Stderr, usage)
+		os.Exit(2)
+	default:
 		fmt.Fprintln(os.Stderr, "netprobe-central:", err)
 		os.Exit(1)
 	}
+}
+
+func dispatch(args []string, out io.Writer) error {
+	if len(args) == 0 {
+		return errUsage
+	}
+	switch args[0] {
+	case "serve":
+		return serve(args[1:])
+	case "edge":
+		return edgeCommand(args[1:], out)
+	case "version", "--version":
+		fmt.Fprintln(out, "netprobe-central", version.String())
+		return nil
+	case "help", "-h", "--help":
+		fmt.Fprint(out, usage)
+		return nil
+	}
+	return fmt.Errorf("%w: unknown command %q", errUsage, args[0])
 }
