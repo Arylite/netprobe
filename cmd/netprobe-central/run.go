@@ -15,11 +15,12 @@ import (
 
 	"github.com/Arylite/netprobe/internal/api"
 	"github.com/Arylite/netprobe/internal/central"
+	"github.com/Arylite/netprobe/internal/central/registry"
 	"github.com/Arylite/netprobe/internal/cli"
 	"github.com/Arylite/netprobe/internal/version"
 )
 
-func run(listen, checksFile, level string) error {
+func run(listen, checksFile, dataDir, level string) error {
 	log, err := cli.NewLogger(level)
 	if err != nil {
 		return err
@@ -28,7 +29,18 @@ func run(listen, checksFile, level string) error {
 	if err != nil {
 		return err
 	}
-	srv, err := central.New(log, checks)
+	reg, err := registry.Open(dataDir)
+	if err != nil {
+		return err
+	}
+	edges, err := reg.List()
+	if err != nil {
+		return err
+	}
+	if len(edges) == 0 {
+		log.Warn("no edge is registered, every request will be refused: run 'netprobe-central edge add --name NAME'", "data_dir", dataDir)
+	}
+	srv, err := central.New(log, checks, reg)
 	if err != nil {
 		return err
 	}
@@ -50,7 +62,7 @@ func run(listen, checksFile, level string) error {
 
 	log.Info("edge API listening", "addr", ln.Addr().String(), "checks", len(checks), "version", version.Version)
 	if !isLoopback(listen) {
-		log.Warn("edge API is open to the network and has no authentication yet", "addr", listen)
+		log.Warn("edge API is open to the network over plain HTTP: put a TLS proxy in front, tokens travel in clear otherwise", "addr", listen)
 	}
 
 	errc := make(chan error, 1)

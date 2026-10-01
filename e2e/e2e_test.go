@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http/httptest"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/Arylite/netprobe/internal/api"
 	"github.com/Arylite/netprobe/internal/central"
+	"github.com/Arylite/netprobe/internal/central/registry"
 	"github.com/Arylite/netprobe/internal/edge"
 )
 
@@ -20,18 +22,31 @@ var checks = []api.Check{
 
 func start(t *testing.T) (*central.Server, *edge.Client) {
 	t.Helper()
-	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	srv, err := central.New(log, checks)
+	srv, _, client := startWithRegistry(t)
+	return srv, client
+}
+
+func startWithRegistry(t *testing.T) (*central.Server, *registry.Registry, *edge.Client) {
+	t.Helper()
+	reg, err := registry.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, token, err := reg.Add("paris")
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv, err := central.New(slog.New(slog.NewTextHandler(io.Discard, nil)), checks, reg)
 	if err != nil {
 		t.Fatal(err)
 	}
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
-	client, err := edge.NewClient(ts.URL, "")
+	client, err := edge.NewClient(ts.URL, token)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return srv, client
+	return srv, reg, client
 }
 
 func TestEdgeReceivesTheAssignedChecks(t *testing.T) {
@@ -58,7 +73,7 @@ func TestCentralStoresWhatTheEdgeReports(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := srv.Results()
-	if len(got) != 2 || got[0].CheckID != "web" || got[0].RTTMillis != 42.5 || got[1].Error != "connection refused" {
+	if len(got) != 2 || got[0].EdgeID == "" || got[0].CheckID != "web" || got[0].RTTMillis != 42.5 || got[1].Error != "connection refused" {
 		t.Fatalf("stored %+v", got)
 	}
 }
@@ -74,5 +89,41 @@ func TestAgentKeepsPollingTheCentral(t *testing.T) {
 	case <-done:
 	case <-time.After(5 * time.Second):
 		t.Fatal("the agent did not stop with its context")
+	}
+}
+
+func TestAnEdgeWithoutAValidTokenIsRefused(t *testing.T) {
+	reg, err := registry.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv, err := central.New(slog.New(slog.NewTextHandler(io.Discard, nil)), checks, reg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+	stranger, err := edge.NewClient(ts.URL, "np_not-issued-by-this-central")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := stranger.Assignments(context.Background()); !errors.Is(err, edge.ErrUnauthorized) {
+		t.Fatalf("assignments: %v", err)
+	}
+	if err := stranger.PostResults(context.Background(), nil); !errors.Is(err, edge.ErrUnauthorized) {
+		t.Fatalf("results: %v", err)
+	}
+}
+
+func TestRevokingAnEdgeCutsItOff(t *testing.T) {
+	_, reg, client := startWithRegistry(t)
+	if _, _, err := client.Assignments(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := reg.Revoke("paris"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := client.Assignments(context.Background()); !errors.Is(err, edge.ErrUnauthorized) {
+		t.Fatalf("after revoke: %v", err)
 	}
 }
