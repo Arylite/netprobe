@@ -82,6 +82,7 @@ type caller struct {
 func (s *Server) routes() []route {
 	var all []route
 	all = append(all, s.sessionRoutes()...)
+	all = append(all, s.readRoutes()...)
 	return all
 }
 
