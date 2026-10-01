@@ -1,0 +1,315 @@
+openapi: 3.0.3
+info:
+  title: netprobe UI API
+  version: 0.7.0
+  description: >
+    The API of the netprobe central for a web UI, or any client. Sign in with
+    POST /api/v1/login, then send the token as "Authorization: Bearer TOKEN".
+    There are no cookies. A browser on another origin must be listed in the
+    central's --cors-origins.
+servers:
+  - url: http://127.0.0.1:8081
+security:
+  - bearer: []
+paths:
+  /api/v1/openapi.yaml:
+    get:
+      summary: This document
+      security: []
+      responses:
+        "200":
+          description: The OpenAPI document.
+  /api/v1/login:
+    post:
+      summary: Sign in
+      description: Every failure answers the same 401. Failed attempts are throttled per address and per account and address (429).
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LoginRequest" }
+      responses:
+        "200":
+          description: A session.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Session" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+  /api/v1/logout:
+    post:
+      summary: End the current session
+      responses:
+        "204": { description: Signed out. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /api/v1/me:
+    get:
+      summary: The signed-in user
+      responses:
+        "200":
+          description: The user.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /api/v1/me/password:
+    post:
+      summary: Change your password
+      description: Needs the current password. Ends every session of the account, this one included.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PasswordChange" }
+      responses:
+        "204": { description: Changed. }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { description: The current password is wrong. }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+  /api/v1/edges:
+    get:
+      summary: List the edges
+      description: Revoked edges are listed too. last_seen is when the edge last reported.
+      responses:
+        "200":
+          description: The edges.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  edges:
+                    type: array
+                    items: { $ref: "#/components/schemas/Edge" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      summary: Register an edge (administrator)
+      description: The token is returned once and cannot be shown again.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, description: "1 to 63 lowercase letters, digits or dashes." }
+      responses:
+        "201":
+          description: The edge and its token.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CreatedEdge" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /api/v1/edges/{name}:
+    delete:
+      summary: Revoke an edge (administrator)
+      parameters:
+        - { name: name, in: path, required: true, schema: { type: string } }
+      responses:
+        "204": { description: Revoked. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/v1/checks:
+    get:
+      summary: List the checks
+      responses:
+        "200":
+          description: The checks.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  checks:
+                    type: array
+                    items: { $ref: "#/components/schemas/Check" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      summary: Add a check (administrator)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Check" }
+      responses:
+        "201":
+          description: The check.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Check" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /api/v1/checks/{id}:
+    delete:
+      summary: Remove a check (administrator)
+      description: Its results are kept.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "204": { description: Removed. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/v1/checks/{id}/results:
+    get:
+      summary: The latest results of a check, newest first
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 1000, default: 100 } }
+      responses:
+        "200":
+          description: The results.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  results:
+                    type: array
+                    items: { $ref: "#/components/schemas/Result" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /api/v1/users:
+    get:
+      summary: List the accounts (administrator)
+      responses:
+        "200":
+          description: The accounts.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  users:
+                    type: array
+                    items: { $ref: "#/components/schemas/User" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      summary: Create an account (administrator)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NewUser" }
+      responses:
+        "201":
+          description: The account.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /api/v1/users/{username}:
+    delete:
+      summary: Delete an account (administrator)
+      description: Not your own account, and never the last administrator (409).
+      parameters:
+        - { name: username, in: path, required: true, schema: { type: string } }
+      responses:
+        "204": { description: Deleted. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+components:
+  securitySchemes:
+    bearer:
+      type: http
+      scheme: bearer
+  responses:
+    BadRequest:
+      description: The request is malformed or invalid.
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    Unauthorized:
+      description: No valid session.
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    Forbidden:
+      description: The account is not an administrator.
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    NotFound:
+      description: No such thing.
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    Conflict:
+      description: It already exists, or the change is not allowed.
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+    TooManyRequests:
+      description: Too many failed attempts; see Retry-After.
+      content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
+  schemas:
+    Error:
+      type: object
+      properties:
+        error: { type: string }
+    LoginRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username: { type: string, maxLength: 64 }
+        password: { type: string, maxLength: 128 }
+    Session:
+      type: object
+      properties:
+        token: { type: string, description: "Send as a bearer token." }
+        expires_at: { type: string, format: date-time }
+        user: { $ref: "#/components/schemas/User" }
+    User:
+      type: object
+      properties:
+        username: { type: string }
+        role: { type: string, enum: [admin, viewer] }
+    NewUser:
+      type: object
+      required: [username, role, password]
+      properties:
+        username: { type: string }
+        role: { type: string, enum: [admin, viewer] }
+        password: { type: string, minLength: 12, maxLength: 128 }
+    PasswordChange:
+      type: object
+      required: [current_password, new_password]
+      properties:
+        current_password: { type: string }
+        new_password: { type: string, minLength: 12, maxLength: 128 }
+    Edge:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        created_at: { type: string, format: date-time }
+        revoked_at: { type: string, format: date-time }
+        last_seen: { type: string, format: date-time }
+    CreatedEdge:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        token: { type: string, description: "Shown once." }
+    Check:
+      type: object
+      required: [id, kind, target, interval_seconds]
+      properties:
+        id: { type: string }
+        kind: { type: string, enum: [tcp, http] }
+        target: { type: string, description: "host:port for tcp, a URL for http." }
+        interval_seconds: { type: integer, minimum: 1 }
+    Result:
+      type: object
+      properties:
+        edge_id: { type: string }
+        at: { type: string, format: date-time }
+        ok: { type: boolean }
+        rtt_millis: { type: number }
+        error: { type: string }

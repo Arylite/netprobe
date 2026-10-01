@@ -84,6 +84,7 @@ func (s *Server) routes() []route {
 	all = append(all, s.sessionRoutes()...)
 	all = append(all, s.readRoutes()...)
 	all = append(all, s.adminRoutes()...)
+	all = append(all, s.specRoutes()...)
 	return all
 }
 
