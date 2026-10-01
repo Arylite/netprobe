@@ -17,6 +17,10 @@ commands:
   edge add --name NAME     register an edge and print its token (shown once)
   edge list                list the edges
   edge revoke --name NAME  cut an edge off
+  check add --id ID --kind tcp|http --target T [--interval SECONDS]
+                           assign a check to every edge
+  check list               list the checks
+  check remove --id ID     stop assigning a check (its results are kept)
   version                  print the version
 
 Every command takes -h for its flags.
@@ -46,6 +50,8 @@ func dispatch(args []string, out io.Writer) error {
 		return serve(args[1:])
 	case "edge":
 		return edgeCommand(args[1:], out)
+	case "check":
+		return checkCommand(args[1:], out)
 	case "version", "--version":
 		fmt.Fprintln(out, "netprobe-central", version.String())
 		return nil
