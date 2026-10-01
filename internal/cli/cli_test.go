@@ -1,6 +1,9 @@
 package cli
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestGetenv(t *testing.T) {
 	t.Setenv("NETPROBE_TEST_SET", "value")
@@ -24,5 +27,19 @@ func TestNewLogger(t *testing.T) {
 	}
 	if _, err := NewLogger("loud"); err == nil {
 		t.Fatal("accepted an unknown level")
+	}
+}
+
+func TestGetenvDuration(t *testing.T) {
+	t.Setenv("NETPROBE_TEST_DURATION", "45s")
+	if got, err := GetenvDuration("NETPROBE_TEST_DURATION", time.Second); err != nil || got != 45*time.Second {
+		t.Fatalf("set: %v, %v", got, err)
+	}
+	if got, err := GetenvDuration("NETPROBE_TEST_DURATION_UNSET", time.Minute); err != nil || got != time.Minute {
+		t.Fatalf("unset: %v, %v", got, err)
+	}
+	t.Setenv("NETPROBE_TEST_DURATION", "soon")
+	if _, err := GetenvDuration("NETPROBE_TEST_DURATION", time.Second); err == nil {
+		t.Fatal("accepted a malformed duration")
 	}
 }
