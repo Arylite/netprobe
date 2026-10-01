@@ -92,7 +92,7 @@ func TestAgentPollsUntilCancelled(t *testing.T) {
 	var polls, posted atomic.Int32
 	ts := stubCentral(t, &polls, &posted)
 	c, _ := NewClient(ts.URL, "")
-	a := &Agent{Client: c, Interval: 10 * time.Millisecond, Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	a := &Agent{Client: c, Measure: okMeasurer, Interval: 10 * time.Millisecond, ReportInterval: 10 * time.Millisecond, Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})

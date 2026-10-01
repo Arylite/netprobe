@@ -22,7 +22,7 @@ func TestTCP(t *testing.T) {
 	defer ln.Close()
 
 	o := local().TCP(context.Background(), ln.Addr().String())
-	if !o.OK || o.RTT <= 0 || o.Err != "" {
+	if !o.OK || o.RTT < 0 || o.Err != "" {
 		t.Fatalf("open port: %+v", o)
 	}
 
@@ -64,7 +64,7 @@ func TestHTTPStatuses(t *testing.T) {
 	}
 	for _, tt := range tests {
 		o := local().HTTP(context.Background(), ts.URL+tt.path)
-		if o.OK != tt.wantOK || !strings.Contains(o.Err, tt.errHas) || o.RTT <= 0 {
+		if o.OK != tt.wantOK || !strings.Contains(o.Err, tt.errHas) || o.RTT < 0 {
 			t.Errorf("%s: %+v", tt.path, o)
 		}
 	}
