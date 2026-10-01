@@ -17,13 +17,14 @@ var errChecksFailed = errors.New("some checks failed")
 // doctorCommand diagnoses the settings 'serve' would run with.
 func doctorCommand(args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("doctor", flag.ContinueOnError)
-	listen := fs.String("listen", cli.Getenv("NETPROBE_LISTEN", "127.0.0.1:8080"), "address of the edge API (NETPROBE_LISTEN)")
+	edgeListen := fs.String("edge-listen", cli.Getenv("NETPROBE_EDGE_LISTEN", "127.0.0.1:8080"), "address of the edge API (NETPROBE_EDGE_LISTEN)")
+	apiListen := fs.String("api-listen", cli.Getenv("NETPROBE_API_LISTEN", "127.0.0.1:8081"), "address of the UI API (NETPROBE_API_LISTEN)")
 	databaseURL := databaseFlag(fs)
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 
-	steps, release := central.DoctorSteps(central.DoctorConfig{DatabaseURL: *databaseURL, Listen: *listen})
+	steps, release := central.DoctorSteps(central.DoctorConfig{DatabaseURL: *databaseURL, EdgeListen: *edgeListen, APIListen: *apiListen})
 	defer release()
 	lines := doctor.Run(context.Background(), steps)
 	doctor.Print(out, lines)

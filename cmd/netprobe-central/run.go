@@ -2,61 +2,93 @@ package main
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/netip"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/Arylite/netprobe/internal/central"
+	"github.com/Arylite/netprobe/internal/central/store"
+	"github.com/Arylite/netprobe/internal/central/webapi"
 	"github.com/Arylite/netprobe/internal/cli"
 	"github.com/Arylite/netprobe/internal/version"
 )
 
-func run(listen, databaseURL, level string) error {
-	log, err := cli.NewLogger(level)
+const purgeEvery = time.Hour
+
+type serveConfig struct {
+	edgeListen  string
+	apiListen   string
+	databaseURL string
+	corsOrigins []string
+	sessionTTL  time.Duration
+	level       string
+}
+
+// surface is one thing the central serves, on its own address.
+type surface struct {
+	name string
+	addr string
+	srv  *http.Server
+}
+
+func run(cfg serveConfig) error {
+	if cfg.edgeListen == "" || cfg.apiListen == "" {
+		return errors.New("--edge-listen and --api-listen must not be empty")
+	}
+	if cfg.edgeListen == cfg.apiListen {
+		return fmt.Errorf("--edge-listen and --api-listen are both %s: they are separate surfaces and need separate addresses", cfg.edgeListen)
+	}
+	log, err := cli.NewLogger(cfg.level)
 	if err != nil {
 		return err
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	st, err := openStore(ctx, databaseURL)
+	st, err := openStore(ctx, cfg.databaseURL)
 	if err != nil {
 		return err
 	}
 	defer st.Close()
+	warnAboutSetup(ctx, log, st, cfg)
 
-	edges, err := st.ListEdges(ctx)
+	ui, err := webapi.New(log, st, webapi.Config{AllowedOrigins: cfg.corsOrigins, SessionTTL: cfg.sessionTTL})
 	if err != nil {
 		return err
 	}
-	if !anyActive(edges) {
-		log.Warn("no edge is registered, every request will be refused: run 'netprobe-central edge add --name NAME'")
+	surfaces := []surface{
+		{name: "edge API", addr: cfg.edgeListen, srv: newServer(central.New(log, st).Handler())},
+		{name: "UI API", addr: cfg.apiListen, srv: newServer(ui.Handler())},
 	}
 
-	httpSrv := &http.Server{
-		Addr:              listen,
-		Handler:           central.New(log, st).Handler(),
-		ReadHeaderTimeout: 10 * time.Second,
-		ReadTimeout:       30 * time.Second,
-		WriteTimeout:      30 * time.Second,
-		IdleTimeout:       120 * time.Second,
-	}
-	ln, err := (&net.ListenConfig{}).Listen(ctx, "tcp", listen)
-	if err != nil {
-		return err
-	}
-
-	log.Info("edge API listening", "addr", ln.Addr().String(), "version", version.Version)
-	if !isLoopback(listen) {
-		log.Warn("edge API is open to the network over plain HTTP: put a TLS proxy in front, tokens travel in clear otherwise", "addr", listen)
+	listeners := make([]net.Listener, 0, len(surfaces))
+	defer func() {
+		for _, ln := range listeners {
+			_ = ln.Close()
+		}
+	}()
+	for _, s := range surfaces {
+		ln, err := (&net.ListenConfig{}).Listen(ctx, "tcp", s.addr)
+		if err != nil {
+			return fmt.Errorf("%s: %w", s.name, err)
+		}
+		listeners = append(listeners, ln)
+		log.Info("listening", "surface", s.name, "addr", ln.Addr().String(), "version", version.Version)
 	}
 
-	errc := make(chan error, 1)
-	go func() { errc <- httpSrv.Serve(ln) }()
+	errc := make(chan error, len(surfaces))
+	for i, s := range surfaces {
+		go func() { errc <- s.srv.Serve(listeners[i]) }()
+	}
+	go purgeSessions(ctx, log, st)
 
 	select {
 	case err := <-errc:
@@ -66,7 +98,56 @@ func run(listen, databaseURL, level string) error {
 	log.Info("shutting down")
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	return httpSrv.Shutdown(shutdownCtx)
+	var errs []error
+	for _, s := range surfaces {
+		errs = append(errs, s.srv.Shutdown(shutdownCtx))
+	}
+	return errors.Join(errs...)
+}
+
+func newServer(h http.Handler) *http.Server {
+	return &http.Server{
+		Handler:           h,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
+}
+
+// warnAboutSetup says what an operator should know before the first request.
+func warnAboutSetup(ctx context.Context, log *slog.Logger, st *store.Store, cfg serveConfig) {
+	if edges, err := st.ListEdges(ctx); err == nil && !anyActive(edges) {
+		log.Warn("no edge is registered, every edge request will be refused: run 'netprobe-central edge add --name NAME'")
+	}
+	if users, err := st.ListUsers(ctx); err == nil && len(users) == 0 {
+		log.Warn("no user exists, nobody can sign in to the UI: run 'netprobe-central user add --username NAME --role admin'")
+	}
+	for _, s := range []struct{ name, addr string }{{"edge API", cfg.edgeListen}, {"UI API", cfg.apiListen}} {
+		if !isLoopback(s.addr) {
+			log.Warn("open to the network over plain HTTP: put a TLS proxy in front, tokens and passwords travel in clear otherwise", "surface", s.name, "addr", s.addr)
+		}
+	}
+	if len(cfg.corsOrigins) > 0 {
+		log.Info("browser origins allowed", "origins", strings.Join(cfg.corsOrigins, ","))
+	}
+}
+
+func purgeSessions(ctx context.Context, log *slog.Logger, st *store.Store) {
+	ticker := time.NewTicker(purgeEvery)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if n, err := st.PurgeSessions(ctx); err != nil {
+				log.Warn("purging sessions failed", "err", err)
+			} else if n > 0 {
+				log.Debug("expired sessions purged", "count", n)
+			}
+		}
+	}
 }
 
 func isLoopback(addr string) bool {

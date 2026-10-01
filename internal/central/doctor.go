@@ -20,9 +20,23 @@ const silentAfter = 10 * time.Minute
 // DoctorConfig is what the central diagnostics need.
 type DoctorConfig struct {
 	DatabaseURL string
-	Listen      string
+	EdgeListen  string
+	APIListen   string
 	// Now is the clock; nil means time.Now.
 	Now func() time.Time
+}
+
+// checkListen judges how a surface is exposed: loopback is private, anything
+// else is open to a network over plain HTTP.
+func checkListen(addr, what, why string) doctor.Outcome {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return doctor.Failure(fmt.Sprintf("listen address %q: %v", addr, err), "use host:port, for example 127.0.0.1:8080")
+	}
+	if ip, err := netip.ParseAddr(host); (err == nil && ip.IsLoopback()) || host == "localhost" {
+		return doctor.Pass(addr + ": reachable from this machine only, anything elsewhere needs a reverse proxy or another address")
+	}
+	return doctor.Warning(addr+": "+what+" is open to the network over plain HTTP", "put a TLS reverse proxy in front: "+why)
 }
 
 // DoctorSteps checks, in order, what the central needs: the database, the
@@ -133,15 +147,11 @@ func DoctorSteps(cfg DoctorConfig) ([]doctor.Step, func()) {
 			}
 			return doctor.Pass(fmt.Sprintf("all %d active edges reported in the last %s", len(active), silentAfter))
 		}},
-		{Name: "listen", Run: func(context.Context) doctor.Outcome {
-			host, _, err := net.SplitHostPort(cfg.Listen)
-			if err != nil {
-				return doctor.Failure(fmt.Sprintf("listen address %q: %v", cfg.Listen, err), "use host:port, for example 127.0.0.1:8080")
-			}
-			if ip, err := netip.ParseAddr(host); (err == nil && ip.IsLoopback()) || host == "localhost" {
-				return doctor.Pass(cfg.Listen + ": reachable from this machine only, edges elsewhere need a reverse proxy or another address")
-			}
-			return doctor.Warning(cfg.Listen+": the edge API is open to the network over plain HTTP", "put a TLS reverse proxy in front: edges refuse to send their token over plain HTTP to a remote host")
+		{Name: "edge-listen", Run: func(context.Context) doctor.Outcome {
+			return checkListen(cfg.EdgeListen, "the edge API", "edges refuse to send their token over plain HTTP to a remote host")
+		}},
+		{Name: "api-listen", Run: func(context.Context) doctor.Outcome {
+			return checkListen(cfg.APIListen, "the UI API", "browsers and the UI send passwords and tokens to it")
 		}},
 	}
 	return steps, func() {

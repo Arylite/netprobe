@@ -38,27 +38,27 @@ func TestDoctorHealthyCentral(t *testing.T) {
 	_ = st.AddCheck(ctx, api.Check{ID: "web", Kind: api.KindTCP, Target: "a:1", IntervalSeconds: 5})
 	_ = st.InsertResults(ctx, edge.ID, []api.Result{{CheckID: "web", At: time.Now(), OK: true}})
 
-	lines := diagnose(t, DoctorConfig{DatabaseURL: url, Listen: "127.0.0.1:8080"})
-	for _, name := range []string{"database", "timescaledb", "schema", "edges", "checks", "activity", "listen"} {
+	lines := diagnose(t, DoctorConfig{DatabaseURL: url, EdgeListen: "127.0.0.1:8080", APIListen: "127.0.0.1:8081"})
+	for _, name := range []string{"database", "timescaledb", "schema", "edges", "checks", "activity", "edge-listen", "api-listen"} {
 		want(t, lines, name, doctor.OK)
 	}
 }
 
 func TestDoctorNeedsADatabaseURL(t *testing.T) {
-	lines := diagnose(t, DoctorConfig{Listen: "127.0.0.1:8080"})
+	lines := diagnose(t, DoctorConfig{EdgeListen: "127.0.0.1:8080", APIListen: "127.0.0.1:8081"})
 	want(t, lines, "database", doctor.Fail)
 	want(t, lines, "schema", doctor.Skip)
 }
 
 func TestDoctorUnreachableDatabase(t *testing.T) {
-	l := want(t, diagnose(t, DoctorConfig{DatabaseURL: "postgres://u:hunter2@127.0.0.1:1/none?connect_timeout=1", Listen: "127.0.0.1:8080"}), "database", doctor.Fail)
+	l := want(t, diagnose(t, DoctorConfig{DatabaseURL: "postgres://u:hunter2@127.0.0.1:1/none?connect_timeout=1", EdgeListen: "127.0.0.1:8080", APIListen: "127.0.0.1:8081"}), "database", doctor.Fail)
 	if strings.Contains(l.Detail, "hunter2") || l.Hint == "" {
 		t.Fatalf("detail %q hint %q", l.Detail, l.Hint)
 	}
 }
 
 func TestDoctorEmptyDatabaseIsAWarningNotAFailure(t *testing.T) {
-	lines := diagnose(t, DoctorConfig{DatabaseURL: storetest.EmptyDatabase(t), Listen: "127.0.0.1:8080"})
+	lines := diagnose(t, DoctorConfig{DatabaseURL: storetest.EmptyDatabase(t), EdgeListen: "127.0.0.1:8080", APIListen: "127.0.0.1:8081"})
 	want(t, lines, "database", doctor.OK)
 	if lines["timescaledb"].Status == doctor.Fail {
 		t.Fatalf("a fresh database must not fail on the extension: %+v", lines["timescaledb"])
@@ -75,7 +75,7 @@ func TestDoctorSilentAndMissingEdges(t *testing.T) {
 	_ = st.AddCheck(ctx, api.Check{ID: "web", Kind: api.KindTCP, Target: "a:1", IntervalSeconds: 5})
 	_ = st.InsertResults(ctx, paris.ID, []api.Result{{CheckID: "web", At: time.Now().Add(-3 * time.Hour), OK: true}})
 
-	l := want(t, diagnose(t, DoctorConfig{DatabaseURL: url, Listen: "127.0.0.1:8080"}), "activity", doctor.Warn)
+	l := want(t, diagnose(t, DoctorConfig{DatabaseURL: url, EdgeListen: "127.0.0.1:8080", APIListen: "127.0.0.1:8081"}), "activity", doctor.Warn)
 	if !strings.Contains(l.Detail, "paris (last report 3h0m0s ago)") || !strings.Contains(l.Detail, "quiet (never reported)") {
 		t.Fatalf("detail %q", l.Detail)
 	}
@@ -83,13 +83,13 @@ func TestDoctorSilentAndMissingEdges(t *testing.T) {
 
 func TestDoctorNoEdgesAndNoChecks(t *testing.T) {
 	_, url := storetest.OpenURL(t)
-	lines := diagnose(t, DoctorConfig{DatabaseURL: url, Listen: "127.0.0.1:8080"})
+	lines := diagnose(t, DoctorConfig{DatabaseURL: url, EdgeListen: "127.0.0.1:8080", APIListen: "127.0.0.1:8081"})
 	want(t, lines, "edges", doctor.Warn)
 	want(t, lines, "checks", doctor.Warn)
 	want(t, lines, "activity", doctor.Skip)
 }
 
-func TestDoctorListenAddress(t *testing.T) {
+func TestDoctorListenAddresses(t *testing.T) {
 	_, url := storetest.OpenURL(t)
 	tests := map[string]doctor.Status{
 		"127.0.0.1:8080": doctor.OK,
@@ -100,7 +100,11 @@ func TestDoctorListenAddress(t *testing.T) {
 		"10.0.0.5:8080":  doctor.Warn,
 	}
 	for addr, status := range tests {
-		want(t, diagnose(t, DoctorConfig{DatabaseURL: url, Listen: addr}), "listen", status)
+		lines := diagnose(t, DoctorConfig{DatabaseURL: url, EdgeListen: addr, APIListen: "127.0.0.1:8081"})
+		want(t, lines, "edge-listen", status)
+		want(t, lines, "api-listen", doctor.OK)
+		lines = diagnose(t, DoctorConfig{DatabaseURL: url, EdgeListen: "127.0.0.1:8080", APIListen: addr})
+		want(t, lines, "api-listen", status)
 	}
-	want(t, diagnose(t, DoctorConfig{DatabaseURL: url, Listen: "nonsense"}), "listen", doctor.Fail)
+	want(t, diagnose(t, DoctorConfig{DatabaseURL: url, EdgeListen: "nonsense", APIListen: "127.0.0.1:8081"}), "edge-listen", doctor.Fail)
 }

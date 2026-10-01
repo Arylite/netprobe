@@ -21,6 +21,12 @@ commands:
                            assign a check to every edge
   check list               list the checks
   check remove --id ID     stop assigning a check (its results are kept)
+  user add --username NAME --role admin|viewer
+                           create an account; the password is read from stdin
+  user list                list the accounts
+  user passwd --username NAME
+                           change a password (read from stdin)
+  user delete --username NAME
   doctor                   check the setup and say what is wrong
   version                  print the version
 
@@ -55,6 +61,8 @@ func dispatch(args []string, out io.Writer) error {
 		return edgeCommand(args[1:], out)
 	case "check":
 		return checkCommand(args[1:], out)
+	case "user":
+		return userCommand(args[1:], out)
 	case "doctor":
 		return doctorCommand(args[1:], out)
 	case "version", "--version":
