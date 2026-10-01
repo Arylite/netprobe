@@ -1,0 +1,27 @@
+VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+COMMIT  := $(shell git rev-parse --short HEAD 2>/dev/null || echo none)
+DATE    := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
+PKG     := github.com/Arylite/netprobe/internal/version
+LDFLAGS := -s -w -X $(PKG).Version=$(VERSION) -X $(PKG).Commit=$(COMMIT) -X $(PKG).Date=$(DATE)
+
+.DEFAULT_GOAL := help
+.PHONY: help build test lint fmt clean
+
+help: ## List the targets
+	@grep -hE '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F ':.*## ' '{printf "  %-8s %s\n", $$1, $$2}'
+
+build: ## Build both binaries into bin/
+	CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o bin/ ./cmd/...
+
+test: ## Run the tests with the race detector
+	go test -race ./...
+
+lint: ## Run go vet and golangci-lint
+	go vet ./...
+	golangci-lint run ./...
+
+fmt: ## Format the code
+	golangci-lint fmt ./...
+
+clean: ## Remove the build output
+	rm -rf bin
