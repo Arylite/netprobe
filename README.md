@@ -4,11 +4,10 @@ Network probing for a fleet of machines. **Edges** measure the network from wher
 they are; a **central** assigns their checks, stores the results, alerts, and
 shows them in a web UI.
 
-Status: 0.6. An edge authenticates with its own token, polls the central for its
-checks, runs them (TCP connect time, HTTP response time) and reports the results
-in batches. Edges, checks and results live in PostgreSQL with TimescaleDB, and
-both sides have a `doctor` command. There is no way to read results back over
-HTTP yet.
+Status: 0.7. Edges poll the central, run their checks and report; accounts and
+a JSON API let a web UI (not written yet) sign in, read the results and manage
+edges, checks and users. Edges, checks, results and accounts live in PostgreSQL
+with TimescaleDB, and both sides have a `doctor` command.
 
 ## Architecture
 
@@ -18,8 +17,8 @@ edge (Go) --- HTTPS + token: poll assignments, post results ---> central (Go) --
                                         web UI (separate app) --- HTTPS + bearer token, JSON API
 ```
 
-- The central serves two APIs and no files: the edge API and, from 0.7, an API
-  for the web UI. The UI is a separate client, hosted anywhere (static files, its
+- The central serves two APIs and no files: the edge API and an API for the web
+  UI, described by an OpenAPI document it publishes itself. The UI is a separate client, hosted anywhere (static files, its
   own server), and talks to the central like any other client.
 - Edges only dial out. They poll `GET /assignments` and post results in batches;
   the poll is also the heartbeat. Plain HTTPS and JSON: it passes any reverse
@@ -46,7 +45,9 @@ internal/cli           environment defaults and logging for the commands
 internal/probe         network measurements and the policy on what they may reach
 internal/edge          the agent: scheduler, buffer, central client
 internal/central       the server: edge API, web API, storage, alerting
-internal/central/store  PostgreSQL: migrations, edges, checks, results
+internal/central/store  PostgreSQL: migrations, edges, checks, results, users
+internal/central/auth   passwords (argon2id), policy, login throttling
+internal/central/webapi the UI API: sessions, roles, CORS, endpoints, OpenAPI
 internal/version       build information
 ```
 
@@ -60,18 +61,29 @@ Dependencies go one way: `cmd` -> `edge` or `central` -> `api` and `probe`.
 make build dev-db        # binaries, and a TimescaleDB on 127.0.0.1:5432
 export NETPROBE_DATABASE_URL='postgres://netprobe:netprobe@127.0.0.1:5432/netprobe?sslmode=disable'
 
-bin/netprobe-central check add --id web --kind http --target https://example.com --interval 30
-bin/netprobe-central edge add --name paris          # prints the token, once
-bin/netprobe-central serve                          # 127.0.0.1:8080
-
-NETPROBE_TOKEN=np_... bin/netprobe-edge --central http://127.0.0.1:8080
+printf '%s
+' 'a long admin password' | bin/netprobe-central user add --username alice --role admin
+bin/netprobe-central serve        # edge API on 127.0.0.1:8080, UI API on 127.0.0.1:8081
 ```
 
-The central applies its migrations on start. `edge list` and `check list` show
-what is registered, `edge revoke --name paris` cuts an edge off at once.
+Then, as the UI would, over the UI API (its contract is `GET /api/v1/openapi.yaml`):
 
-Results go to a TimescaleDB hypertable, compressed after 7 days and kept until
-you delete them. The extension must be creatable by the database user.
+```sh
+API=http://127.0.0.1:8081
+TOKEN=$(curl -s $API/api/v1/login -d '{"username":"alice","password":"a long admin password"}' | jq -r .token)
+EDGE=$(curl -s $API/api/v1/edges -H "Authorization: Bearer $TOKEN" -d '{"name":"paris"}' | jq -r .token)
+curl -s $API/api/v1/checks -H "Authorization: Bearer $TOKEN"   -d '{"id":"web","kind":"http","target":"https://example.com","interval_seconds":30}'
+
+NETPROBE_TOKEN=$EDGE bin/netprobe-edge --central http://127.0.0.1:8080
+
+curl -s "$API/api/v1/checks/web/results?limit=5" -H "Authorization: Bearer $TOKEN"
+```
+
+The same things can be done from the command line: `edge add|list|revoke`,
+`check add|list|remove` and `user add|list|passwd|delete`. The central applies its
+migrations on start. Results go to a TimescaleDB hypertable, compressed after 7
+days and kept until you delete them; the extension must be creatable by the
+database user.
 
 ## When something does not work
 
@@ -94,6 +106,27 @@ clocks. `netprobe-central doctor` checks the database, TimescaleDB, the schema,
 the edges and checks, edges that stopped reporting, and how the edge API is
 exposed. Neither changes anything: the central's check reads the database
 without migrating it. The exit status is 1 when a step failed.
+
+## The UI API
+
+It is a separate listener (`--api-listen`) from the edge API (`--edge-listen`), so
+one can face the internet and the other an intranet. The web UI is a separate
+application: it is hosted wherever you like and calls this API.
+
+- `POST /api/v1/login` trades a username and a password for an opaque session
+  token (12 hours, `--session-ttl`); the UI sends it as `Authorization: Bearer`.
+  There are no cookies, so there is nothing for another site to forge: no CSRF.
+- Roles: `viewer` reads everything, `admin` also manages edges, checks and users.
+  Nobody can delete their own account or the last administrator.
+- A browser on another origin must be named in `--cors-origins`
+  (`scheme://host[:port]`, no wildcard). By default no origin is allowed.
+- Passwords are hashed with argon2id, 12 to 128 characters. A failed login looks
+  the same for an unknown user and a wrong password and takes the same time.
+  Failures are throttled per address and per account and address; a success does
+  not reset the limit of the address. Changing a password needs the current one
+  and ends every session of the account.
+- Plain HTTP, like the edge API: put a TLS reverse proxy in front outside
+  localhost. The central warns when a surface is bound elsewhere.
 
 ## Security model
 
@@ -119,7 +152,8 @@ without migrating it. The exit status is 1 when a step failed.
   oldest go first. A batch the central refuses as invalid is dropped rather than
   retried forever. On shutdown the edge stops measuring, then sends what is left.
 
-Every flag has a `NETPROBE_*` variable: `NETPROBE_LISTEN`, `NETPROBE_DATABASE_URL`,
+Every flag has a `NETPROBE_*` variable: `NETPROBE_EDGE_LISTEN`, `NETPROBE_API_LISTEN`, `NETPROBE_CORS_ORIGINS`,
+`NETPROBE_SESSION_TTL`, `NETPROBE_DATABASE_URL`,
 `NETPROBE_CENTRAL`, `NETPROBE_TOKEN`, `NETPROBE_TOKEN_FILE`,
 `NETPROBE_POLL_INTERVAL`, `NETPROBE_REPORT_INTERVAL`, `NETPROBE_DENY`,
 `NETPROBE_LOG_LEVEL`.
