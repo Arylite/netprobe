@@ -1,6 +1,7 @@
 package central
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -11,39 +12,36 @@ import (
 	"time"
 
 	"github.com/Arylite/netprobe/internal/api"
-	"github.com/Arylite/netprobe/internal/central/registry"
+	"github.com/Arylite/netprobe/internal/central/store"
+	"github.com/Arylite/netprobe/internal/central/store/storetest"
 )
 
 var (
-	testChecks = []api.Check{{ID: "c1", Kind: api.KindTCP, Target: "example.com:443", IntervalSeconds: 10}}
-	quiet      = slog.New(slog.NewTextHandler(io.Discard, nil))
+	testCheck = api.Check{ID: "c1", Kind: api.KindTCP, Target: "example.com:443", IntervalSeconds: 10}
+	quiet     = slog.New(slog.NewTextHandler(io.Discard, nil))
 )
 
 type fixture struct {
-	srv   *Server
-	reg   *registry.Registry
+	store *store.Store
 	url   string
-	edge  registry.Edge
+	edge  store.Edge
 	token string
 }
 
 func newFixture(t *testing.T) *fixture {
 	t.Helper()
-	reg, err := registry.Open(t.TempDir())
+	st := storetest.Open(t)
+	ctx := context.Background()
+	edge, token, err := st.AddEdge(ctx, "paris")
 	if err != nil {
 		t.Fatal(err)
 	}
-	edge, token, err := reg.Add("paris")
-	if err != nil {
+	if err := st.AddCheck(ctx, testCheck); err != nil {
 		t.Fatal(err)
 	}
-	srv, err := New(quiet, testChecks, reg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ts := httptest.NewServer(srv.Handler())
+	ts := httptest.NewServer(New(quiet, st).Handler())
 	t.Cleanup(ts.Close)
-	return &fixture{srv: srv, reg: reg, url: ts.URL, edge: edge, token: token}
+	return &fixture{store: st, url: ts.URL, edge: edge, token: token}
 }
 
 func (f *fixture) do(t *testing.T, method, path, body string, header map[string]string) *http.Response {
@@ -67,15 +65,13 @@ func (f *fixture) bearer() map[string]string {
 	return map[string]string{"Authorization": "Bearer " + f.token}
 }
 
-func TestNewRejectsBadChecks(t *testing.T) {
-	reg, _ := registry.Open(t.TempDir())
-	dup := append(append([]api.Check(nil), testChecks...), testChecks...)
-	if _, err := New(quiet, dup, reg); err == nil {
-		t.Fatal("accepted a duplicated check id")
+func (f *fixture) stored(t *testing.T) []store.Result {
+	t.Helper()
+	got, err := f.store.RecentResults(context.Background(), "c1", 100)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if _, err := New(quiet, []api.Check{{ID: "x"}}, reg); err == nil {
-		t.Fatal("accepted an invalid check")
-	}
+	return got
 }
 
 func TestHealthNeedsNoToken(t *testing.T) {
@@ -101,26 +97,29 @@ func TestEdgeAPIRefusesMissingAndWrongTokens(t *testing.T) {
 			}
 		}
 	}
-	if n := len(f.srv.Results()); n != 0 {
+	if n := len(f.stored(t)); n != 0 {
 		t.Fatalf("%d results stored without a token", n)
 	}
 }
 
-func TestRevokedTokenIsRefused(t *testing.T) {
+func TestRevokedTokenIsRefusedImmediately(t *testing.T) {
 	f := newFixture(t)
-	if err := f.reg.Revoke("paris"); err != nil {
+	if res := f.do(t, http.MethodGet, api.PathAssignments, "", f.bearer()); res.StatusCode != http.StatusOK {
+		t.Fatalf("before revoke: %d", res.StatusCode)
+	}
+	if err := f.store.RevokeEdge(context.Background(), "paris"); err != nil {
 		t.Fatal(err)
 	}
 	if res := f.do(t, http.MethodGet, api.PathAssignments, "", f.bearer()); res.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("status %d", res.StatusCode)
+		t.Fatalf("after revoke: %d", res.StatusCode)
 	}
 }
 
-func TestAssignmentsAndETag(t *testing.T) {
+func TestAssignmentsComeFromTheStoreWithAnETag(t *testing.T) {
 	f := newFixture(t)
 	res := f.do(t, http.MethodGet, api.PathAssignments, "", f.bearer())
 	var got api.Assignments
-	if err := json.NewDecoder(res.Body).Decode(&got); err != nil || len(got.Checks) != 1 || got.Checks[0] != testChecks[0] {
+	if err := json.NewDecoder(res.Body).Decode(&got); err != nil || len(got.Checks) != 1 || got.Checks[0] != testCheck {
 		t.Fatalf("assignments %+v, %v", got, err)
 	}
 	etag := res.Header.Get("ETag")
@@ -130,34 +129,39 @@ func TestAssignmentsAndETag(t *testing.T) {
 	h := f.bearer()
 	h["If-None-Match"] = etag
 	if again := f.do(t, http.MethodGet, api.PathAssignments, "", h); again.StatusCode != http.StatusNotModified {
-		t.Fatalf("status %d, want 304", again.StatusCode)
+		t.Fatalf("unchanged: status %d, want 304", again.StatusCode)
 	}
-}
 
-func TestEmptyAssignmentsAreAnArray(t *testing.T) {
-	reg, _ := registry.Open(t.TempDir())
-	_, token, _ := reg.Add("paris")
-	s, err := New(quiet, nil, reg)
-	if err != nil {
+	next := api.Check{ID: "c2", Kind: api.KindHTTP, Target: "https://example.com", IntervalSeconds: 30}
+	if err := f.store.AddCheck(context.Background(), next); err != nil {
 		t.Fatal(err)
 	}
-	req := httptest.NewRequest(http.MethodGet, api.PathAssignments, nil)
-	req.Header.Set("Authorization", "Bearer "+token)
-	rec := httptest.NewRecorder()
-	s.Handler().ServeHTTP(rec, req)
-	if !strings.Contains(rec.Body.String(), `"checks":[]`) {
-		t.Fatalf("body %s", rec.Body.String())
+	changed := f.do(t, http.MethodGet, api.PathAssignments, "", h)
+	if changed.StatusCode != http.StatusOK || changed.Header.Get("ETag") == etag {
+		t.Fatalf("after adding a check: status %d, etag %q", changed.StatusCode, changed.Header.Get("ETag"))
 	}
 }
 
-func TestPostResultsAreTaggedWithTheEdge(t *testing.T) {
+func TestNoChecksIsAnEmptyArray(t *testing.T) {
+	f := newFixture(t)
+	if err := f.store.RemoveCheck(context.Background(), "c1"); err != nil {
+		t.Fatal(err)
+	}
+	res := f.do(t, http.MethodGet, api.PathAssignments, "", f.bearer())
+	raw, _ := io.ReadAll(res.Body)
+	if !strings.Contains(string(raw), `"checks":[]`) {
+		t.Fatalf("body %s", raw)
+	}
+}
+
+func TestPostResultsAreStoredWithTheEdge(t *testing.T) {
 	f := newFixture(t)
 	body := `{"results":[{"check_id":"c1","at":"` + time.Now().UTC().Format(time.RFC3339) + `","ok":true,"rtt_millis":3.5}]}`
 	if res := f.do(t, http.MethodPost, api.PathResults, body, f.bearer()); res.StatusCode != http.StatusNoContent {
 		t.Fatalf("status %d", res.StatusCode)
 	}
-	got := f.srv.Results()
-	if len(got) != 1 || got[0].CheckID != "c1" || got[0].EdgeID != f.edge.ID {
+	got := f.stored(t)
+	if len(got) != 1 || got[0].CheckID != "c1" || got[0].EdgeID != f.edge.ID || got[0].RTTMillis != 3.5 {
 		t.Fatalf("stored %+v", got)
 	}
 }
@@ -177,21 +181,18 @@ func TestPostResultsRefusals(t *testing.T) {
 			}
 		})
 	}
+	if n := len(f.stored(t)); n != 0 {
+		t.Fatalf("%d refused results were stored", n)
+	}
 }
 
-func TestStoredResultsAreBounded(t *testing.T) {
+func TestADatabaseFailureIsA503NotA401(t *testing.T) {
 	f := newFixture(t)
-	batch := make([]api.Result, api.MaxResultsPerBatch)
-	for i := range batch {
-		batch[i] = api.Result{CheckID: "c1", At: time.Now()}
-	}
-	body, _ := json.Marshal(api.ResultsRequest{Results: batch})
-	for i := 0; i < maxStoredResults/api.MaxResultsPerBatch+2; i++ {
-		if res := f.do(t, http.MethodPost, api.PathResults, string(body), f.bearer()); res.StatusCode != http.StatusNoContent {
-			t.Fatalf("status %d", res.StatusCode)
+	f.store.Close()
+	for _, call := range []struct{ method, path string }{{http.MethodGet, api.PathAssignments}, {http.MethodPost, api.PathResults}, {http.MethodGet, api.PathHealth}} {
+		res := f.do(t, call.method, call.path, `{"results":[]}`, f.bearer())
+		if res.StatusCode != http.StatusServiceUnavailable {
+			t.Errorf("%s %s: status %d, want 503", call.method, call.path, res.StatusCode)
 		}
-	}
-	if n := len(f.srv.Results()); n != maxStoredResults {
-		t.Fatalf("stored %d, want %d", n, maxStoredResults)
 	}
 }

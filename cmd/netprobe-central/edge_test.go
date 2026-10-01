@@ -2,11 +2,13 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"strings"
 	"testing"
 
-	"github.com/Arylite/netprobe/internal/central/registry"
+	"github.com/Arylite/netprobe/internal/central/store"
+	"github.com/Arylite/netprobe/internal/central/store/storetest"
 )
 
 func runCLI(t *testing.T, args ...string) (string, error) {
@@ -17,9 +19,9 @@ func runCLI(t *testing.T, args ...string) (string, error) {
 }
 
 func TestEdgeAddListRevoke(t *testing.T) {
-	dir := t.TempDir()
+	st, url := storetest.OpenURL(t)
 
-	out, err := runCLI(t, "edge", "add", "--data-dir", dir, "--name", "paris")
+	out, err := runCLI(t, "edge", "add", "--database-url", url, "--name", "paris")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -28,44 +30,50 @@ func TestEdgeAddListRevoke(t *testing.T) {
 	if !strings.HasPrefix(token, "np_") {
 		t.Fatalf("the last line is not the token: %q", out)
 	}
-	reg, err := registry.Open(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := reg.Authenticate(token); !ok {
-		t.Fatal("the printed token does not authenticate")
+	if _, ok, err := st.AuthenticateEdge(context.Background(), token); !ok || err != nil {
+		t.Fatalf("the printed token does not authenticate: %v, %v", ok, err)
 	}
 
-	out, err = runCLI(t, "edge", "list", "--data-dir", dir)
+	out, err = runCLI(t, "edge", "list", "--database-url", url)
 	if err != nil || !strings.Contains(out, "paris") || !strings.Contains(out, "active") || strings.Contains(out, token) {
 		t.Fatalf("list: %q, %v", out, err)
 	}
 
-	if _, err := runCLI(t, "edge", "revoke", "--data-dir", dir, "--name", "paris"); err != nil {
+	if _, err := runCLI(t, "edge", "revoke", "--database-url", url, "--name", "paris"); err != nil {
 		t.Fatal(err)
 	}
-	out, _ = runCLI(t, "edge", "list", "--data-dir", dir)
+	out, _ = runCLI(t, "edge", "list", "--database-url", url)
 	if !strings.Contains(out, "revoked") {
 		t.Fatalf("list after revoke: %q", out)
 	}
-	if _, err := runCLI(t, "edge", "revoke", "--data-dir", dir, "--name", "paris"); !errors.Is(err, registry.ErrNotFound) {
+	if _, err := runCLI(t, "edge", "revoke", "--database-url", url, "--name", "paris"); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("second revoke: %v", err)
 	}
 }
 
 func TestEdgeCommandsRefuseBadInput(t *testing.T) {
-	dir := t.TempDir()
+	_, url := storetest.OpenURL(t)
 	for name, args := range map[string][]string{
-		"no name":        {"edge", "add", "--data-dir", dir},
-		"bad name":       {"edge", "add", "--data-dir", dir, "--name", "Paris"},
+		"no name":        {"edge", "add", "--database-url", url},
+		"bad name":       {"edge", "add", "--database-url", url, "--name", "Paris"},
+		"no database":    {"edge", "list", "--database-url", ""},
 		"unknown":        {"edge", "frobnicate"},
 		"no edge action": {"edge"},
 		"no command":     {},
 		"unknown top":    {"frobnicate"},
 	} {
+		t.Setenv("NETPROBE_DATABASE_URL", "")
 		if _, err := runCLI(t, args...); err == nil {
 			t.Errorf("%s: accepted", name)
 		}
+	}
+}
+
+func TestTheDatabaseURLIsNeverEchoed(t *testing.T) {
+	t.Setenv("NETPROBE_DATABASE_URL", "")
+	_, err := runCLI(t, "edge", "list", "--database-url", "postgres://user:hunter2@127.0.0.1:1/none?connect_timeout=1")
+	if err == nil || strings.Contains(err.Error(), "hunter2") {
+		t.Fatalf("error %v", err)
 	}
 }
 

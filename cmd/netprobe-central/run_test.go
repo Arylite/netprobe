@@ -1,9 +1,10 @@
 package main
 
 import (
-	"os"
-	"path/filepath"
 	"testing"
+	"time"
+
+	"github.com/Arylite/netprobe/internal/central/store"
 )
 
 func TestIsLoopback(t *testing.T) {
@@ -23,26 +24,16 @@ func TestIsLoopback(t *testing.T) {
 	}
 }
 
-func TestLoadChecks(t *testing.T) {
-	if checks, err := loadChecks(""); err != nil || checks != nil {
-		t.Fatalf("no file: %v %v", checks, err)
+func TestAnyActive(t *testing.T) {
+	if anyActive(nil) {
+		t.Fatal("no edge is not an active edge")
 	}
-	dir := t.TempDir()
-	good := filepath.Join(dir, "good.json")
-	if err := os.WriteFile(good, []byte(`{"checks":[{"id":"c1","kind":"tcp","target":"example.com:443","interval_seconds":10}]}`), 0o600); err != nil {
-		t.Fatal(err)
+	now := time.Now()
+	revoked := store.Edge{RevokedAt: &now}
+	if anyActive([]store.Edge{revoked}) {
+		t.Fatal("a revoked edge counted as active")
 	}
-	if checks, err := loadChecks(good); err != nil || len(checks) != 1 {
-		t.Fatalf("good file: %v %v", checks, err)
-	}
-	bad := filepath.Join(dir, "bad.json")
-	if err := os.WriteFile(bad, []byte(`{"checks":[],"typo":1}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := loadChecks(bad); err == nil {
-		t.Fatal("accepted an unknown field")
-	}
-	if _, err := loadChecks(filepath.Join(dir, "missing.json")); err == nil {
-		t.Fatal("accepted a missing file")
+	if !anyActive([]store.Edge{revoked, {}}) {
+		t.Fatal("an active edge was not seen")
 	}
 }

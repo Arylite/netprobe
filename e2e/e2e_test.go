@@ -12,71 +12,81 @@ import (
 
 	"github.com/Arylite/netprobe/internal/api"
 	"github.com/Arylite/netprobe/internal/central"
-	"github.com/Arylite/netprobe/internal/central/registry"
+	"github.com/Arylite/netprobe/internal/central/store"
+	"github.com/Arylite/netprobe/internal/central/store/storetest"
 	"github.com/Arylite/netprobe/internal/edge"
 	"github.com/Arylite/netprobe/internal/probe"
 )
 
-var checks = []api.Check{
-	{ID: "web", Kind: api.KindHTTP, Target: "https://example.com", IntervalSeconds: 30},
-	{ID: "ssh", Kind: api.KindTCP, Target: "example.com:22", IntervalSeconds: 10},
+var quiet = slog.New(slog.NewTextHandler(io.Discard, nil))
+
+type stack struct {
+	store *store.Store
+	url   string
+	edge  store.Edge
+	token string
 }
 
-func start(t *testing.T) (*central.Server, *edge.Client) {
+func start(t *testing.T, checks ...api.Check) *stack {
 	t.Helper()
-	srv, _, client := startWithRegistry(t)
-	return srv, client
-}
-
-func startWithRegistry(t *testing.T) (*central.Server, *registry.Registry, *edge.Client) {
-	t.Helper()
-	reg, err := registry.Open(t.TempDir())
+	st := storetest.Open(t)
+	ctx := context.Background()
+	e, token, err := st.AddEdge(ctx, "paris")
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, token, err := reg.Add("paris")
-	if err != nil {
-		t.Fatal(err)
+	for _, c := range checks {
+		if err := st.AddCheck(ctx, c); err != nil {
+			t.Fatal(err)
+		}
 	}
-	srv, err := central.New(slog.New(slog.NewTextHandler(io.Discard, nil)), checks, reg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ts := httptest.NewServer(srv.Handler())
+	ts := httptest.NewServer(central.New(quiet, st).Handler())
 	t.Cleanup(ts.Close)
-	client, err := edge.NewClient(ts.URL, token)
+	return &stack{store: st, url: ts.URL, edge: e, token: token}
+}
+
+func (s *stack) client(t *testing.T, token string) *edge.Client {
+	t.Helper()
+	c, err := edge.NewClient(s.url, token)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return srv, reg, client
+	return c
 }
 
-func TestEdgeReceivesTheAssignedChecks(t *testing.T) {
-	_, client := start(t)
+func TestEdgeReceivesTheStoredChecks(t *testing.T) {
+	web := api.Check{ID: "web", Kind: api.KindHTTP, Target: "https://example.com", IntervalSeconds: 30}
+	ssh := api.Check{ID: "ssh", Kind: api.KindTCP, Target: "example.com:22", IntervalSeconds: 10}
+	s := start(t, web, ssh)
+	client := s.client(t, s.token)
+
 	got, changed, err := client.Assignments(context.Background())
-	if err != nil || !changed {
-		t.Fatalf("first poll: changed=%v err=%v", changed, err)
-	}
-	if len(got) != len(checks) || got[0] != checks[0] || got[1] != checks[1] {
-		t.Fatalf("got %+v", got)
+	if err != nil || !changed || len(got) != 2 || got[0] != ssh || got[1] != web {
+		t.Fatalf("first poll: %+v changed=%v err=%v", got, changed, err)
 	}
 	if _, changed, err := client.Assignments(context.Background()); err != nil || changed {
 		t.Fatalf("second poll: changed=%v err=%v", changed, err)
 	}
-}
-
-func TestCentralStoresWhatTheEdgeReports(t *testing.T) {
-	srv, client := start(t)
-	sent := []api.Result{
-		{CheckID: "web", At: time.Now().UTC(), OK: true, RTTMillis: 42.5},
-		{CheckID: "ssh", At: time.Now().UTC(), OK: false, Error: "connection refused"},
-	}
-	if err := client.PostResults(context.Background(), sent); err != nil {
+	if err := s.store.RemoveCheck(context.Background(), "ssh"); err != nil {
 		t.Fatal(err)
 	}
-	got := srv.Results()
-	if len(got) != 2 || got[0].EdgeID == "" || got[0].CheckID != "web" || got[0].RTTMillis != 42.5 || got[1].Error != "connection refused" {
-		t.Fatalf("stored %+v", got)
+	if got, changed, err := client.Assignments(context.Background()); err != nil || !changed || len(got) != 1 {
+		t.Fatalf("after removing a check: %+v changed=%v err=%v", got, changed, err)
+	}
+}
+
+func TestResultsReportedByTheEdgeAreStored(t *testing.T) {
+	s := start(t)
+	sent := []api.Result{
+		{CheckID: "web", At: time.Now().UTC(), OK: true, RTTMillis: 42.5},
+		{CheckID: "web", At: time.Now().UTC().Add(time.Second), Error: "connection refused"},
+	}
+	if err := s.client(t, s.token).PostResults(context.Background(), sent); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.store.RecentResults(context.Background(), "web", 10)
+	if err != nil || len(got) != 2 || got[0].EdgeID != s.edge.ID || got[0].Error != "connection refused" || got[1].RTTMillis != 42.5 {
+		t.Fatalf("stored %+v, %v", got, err)
 	}
 }
 
@@ -86,44 +96,29 @@ func TestAgentMeasuresAndTheCentralStoresTheResults(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer ln.Close()
-
-	reg, err := registry.Open(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	e, token, err := reg.Add("paris")
-	if err != nil {
-		t.Fatal(err)
-	}
-	assigned := []api.Check{{ID: "local", Kind: api.KindTCP, Target: ln.Addr().String(), IntervalSeconds: 1}}
-	srv, err := central.New(slog.New(slog.NewTextHandler(io.Discard, nil)), assigned, reg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ts := httptest.NewServer(srv.Handler())
-	defer ts.Close()
-	client, err := edge.NewClient(ts.URL, token)
-	if err != nil {
-		t.Fatal(err)
-	}
+	s := start(t, api.Check{ID: "local", Kind: api.KindTCP, Target: ln.Addr().String(), IntervalSeconds: 1})
 
 	agent := &edge.Agent{
-		Client:         client,
+		Client:         s.client(t, s.token),
 		Measure:        edge.ProbeMeasurer(probe.New(probe.Policy{}, time.Second)),
 		Interval:       50 * time.Millisecond,
 		ReportInterval: 50 * time.Millisecond,
-		Log:            slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Log:            quiet,
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() { agent.Run(ctx); close(done) }()
 
+	var got []store.Result
 	deadline := time.Now().Add(10 * time.Second)
-	for len(srv.Results()) < 2 {
+	for len(got) < 2 {
 		if time.Now().After(deadline) {
 			t.Fatal("the central did not receive the measurements")
 		}
-		time.Sleep(20 * time.Millisecond)
+		time.Sleep(50 * time.Millisecond)
+		if got, err = s.store.RecentResults(context.Background(), "local", 10); err != nil {
+			t.Fatal(err)
+		}
 	}
 	cancel()
 	select {
@@ -131,28 +126,14 @@ func TestAgentMeasuresAndTheCentralStoresTheResults(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Fatal("the agent did not stop")
 	}
-
-	got := srv.Results()[0]
-	if got.EdgeID != e.ID || got.CheckID != "local" || !got.OK || got.RTTMillis < 0 {
-		t.Fatalf("stored %+v", got)
+	if first := got[0]; first.EdgeID != s.edge.ID || !first.OK || first.RTTMillis < 0 {
+		t.Fatalf("stored %+v", first)
 	}
 }
 
 func TestAnEdgeWithoutAValidTokenIsRefused(t *testing.T) {
-	reg, err := registry.Open(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	srv, err := central.New(slog.New(slog.NewTextHandler(io.Discard, nil)), checks, reg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ts := httptest.NewServer(srv.Handler())
-	defer ts.Close()
-	stranger, err := edge.NewClient(ts.URL, "np_not-issued-by-this-central")
-	if err != nil {
-		t.Fatal(err)
-	}
+	s := start(t)
+	stranger := s.client(t, "np_not-issued-by-this-central")
 	if _, _, err := stranger.Assignments(context.Background()); !errors.Is(err, edge.ErrUnauthorized) {
 		t.Fatalf("assignments: %v", err)
 	}
@@ -162,11 +143,12 @@ func TestAnEdgeWithoutAValidTokenIsRefused(t *testing.T) {
 }
 
 func TestRevokingAnEdgeCutsItOff(t *testing.T) {
-	_, reg, client := startWithRegistry(t)
+	s := start(t)
+	client := s.client(t, s.token)
 	if _, _, err := client.Assignments(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if err := reg.Revoke("paris"); err != nil {
+	if err := s.store.RevokeEdge(context.Background(), "paris"); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := client.Assignments(context.Background()); !errors.Is(err, edge.ErrUnauthorized) {

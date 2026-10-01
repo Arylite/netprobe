@@ -9,56 +9,23 @@ import (
 	"net"
 	"net/http"
 	"strings"
-	"sync"
 
 	"github.com/Arylite/netprobe/internal/api"
-	"github.com/Arylite/netprobe/internal/central/registry"
+	"github.com/Arylite/netprobe/internal/central/store"
 )
 
-const (
-	maxBodyBytes     = 1 << 20
-	maxStoredResults = 10_000
-)
+const maxBodyBytes = 1 << 20
 
-// StoredResult is a result with the edge that reported it.
-type StoredResult struct {
-	EdgeID string
-	api.Result
-}
-
-// Server is the edge API. Edges authenticate with the token the registry
-// issued them; results are held in memory.
+// Server is the edge API. Edges authenticate with the token the store issued
+// them; checks and results live in the store.
 type Server struct {
-	log         *slog.Logger
-	reg         *registry.Registry
-	assignments []byte
-	etag        string
-
-	mu      sync.Mutex
-	results []StoredResult
+	log   *slog.Logger
+	store *store.Store
 }
 
-// New builds a server that assigns the same checks to every edge.
-func New(log *slog.Logger, checks []api.Check, reg *registry.Registry) (*Server, error) {
-	seen := make(map[string]bool, len(checks))
-	for _, c := range checks {
-		if err := c.Validate(); err != nil {
-			return nil, err
-		}
-		if seen[c.ID] {
-			return nil, fmt.Errorf("check %s is listed twice", c.ID)
-		}
-		seen[c.ID] = true
-	}
-	if checks == nil {
-		checks = []api.Check{}
-	}
-	body, err := json.Marshal(api.Assignments{Checks: checks})
-	if err != nil {
-		return nil, fmt.Errorf("encode assignments: %w", err)
-	}
-	sum := sha256.Sum256(body)
-	return &Server{log: log, reg: reg, assignments: body, etag: `"` + hex.EncodeToString(sum[:8]) + `"`}, nil
+// New builds the edge API on top of a store.
+func New(log *slog.Logger, st *store.Store) *Server {
+	return &Server{log: log, store: st}
 }
 
 // Handler serves the edge API.
@@ -70,13 +37,26 @@ func (s *Server) Handler() http.Handler {
 	return mux
 }
 
+func (s *Server) health(w http.ResponseWriter, r *http.Request) {
+	if err := s.store.Ping(r.Context()); err != nil {
+		s.unavailable(w, "health check", err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // authenticated runs next for requests that carry the token of an active edge.
-func (s *Server) authenticated(next func(http.ResponseWriter, *http.Request, registry.Edge)) http.HandlerFunc {
+func (s *Server) authenticated(next func(http.ResponseWriter, *http.Request, store.Edge)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		token, ok := bearerToken(r)
-		var edge registry.Edge
+		var edge store.Edge
 		if ok {
-			edge, ok = s.reg.Authenticate(token)
+			var err error
+			edge, ok, err = s.store.AuthenticateEdge(r.Context(), token)
+			if err != nil {
+				s.unavailable(w, "authenticate", err)
+				return
+			}
 		}
 		if !ok {
 			s.log.Debug("unauthorized request", "path", r.URL.Path, "client_ip", connectionHost(r))
@@ -105,28 +85,36 @@ func connectionHost(r *http.Request) string {
 	return host
 }
 
-// Results returns a copy of the stored results, oldest first.
-func (s *Server) Results() []StoredResult {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return append([]StoredResult(nil), s.results...)
+// unavailable answers 503 for a failure of the database, which is the central's
+// problem and must not look like a refused token.
+func (s *Server) unavailable(w http.ResponseWriter, op string, err error) {
+	s.log.Error("request failed", "op", op, "err", err)
+	http.Error(w, "service unavailable", http.StatusServiceUnavailable)
 }
 
-func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
-	w.WriteHeader(http.StatusNoContent)
-}
-
-func (s *Server) getAssignments(w http.ResponseWriter, r *http.Request, _ registry.Edge) {
-	w.Header().Set("ETag", s.etag)
-	if r.Header.Get("If-None-Match") == s.etag {
+func (s *Server) getAssignments(w http.ResponseWriter, r *http.Request, _ store.Edge) {
+	checks, err := s.store.ListChecks(r.Context())
+	if err != nil {
+		s.unavailable(w, "list checks", err)
+		return
+	}
+	body, err := json.Marshal(api.Assignments{Checks: checks})
+	if err != nil {
+		s.unavailable(w, "encode assignments", fmt.Errorf("encode: %w", err))
+		return
+	}
+	sum := sha256.Sum256(body)
+	etag := `"` + hex.EncodeToString(sum[:8]) + `"`
+	w.Header().Set("ETag", etag)
+	if r.Header.Get("If-None-Match") == etag {
 		w.WriteHeader(http.StatusNotModified)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	_, _ = w.Write(s.assignments)
+	_, _ = w.Write(body)
 }
 
-func (s *Server) postResults(w http.ResponseWriter, r *http.Request, edge registry.Edge) {
+func (s *Server) postResults(w http.ResponseWriter, r *http.Request, edge store.Edge) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
 	dec := json.NewDecoder(r.Body)
 	dec.DisallowUnknownFields()
@@ -139,16 +127,10 @@ func (s *Server) postResults(w http.ResponseWriter, r *http.Request, edge regist
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-
-	s.mu.Lock()
-	for _, res := range req.Results {
-		s.results = append(s.results, StoredResult{EdgeID: edge.ID, Result: res})
+	if err := s.store.InsertResults(r.Context(), edge.ID, req.Results); err != nil {
+		s.unavailable(w, "insert results", err)
+		return
 	}
-	if over := len(s.results) - maxStoredResults; over > 0 {
-		s.results = s.results[over:]
-	}
-	s.mu.Unlock()
-
 	s.log.Debug("results received", "edge_id", edge.ID, "edge", edge.Name, "count", len(req.Results))
 	w.WriteHeader(http.StatusNoContent)
 }

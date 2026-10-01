@@ -1,13 +1,14 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"text/tabwriter"
 
-	"github.com/Arylite/netprobe/internal/central/registry"
+	"github.com/Arylite/netprobe/internal/central/store"
 )
 
 func edgeCommand(args []string, out io.Writer) error {
@@ -25,11 +26,11 @@ func edgeCommand(args []string, out io.Writer) error {
 	return fmt.Errorf("%w: unknown edge command %q", errUsage, args[0])
 }
 
-// openRegistry parses the flags shared by the edge commands and opens the
-// registry; name is empty for commands that take none.
-func openRegistry(cmd string, args []string, wantName bool) (*registry.Registry, string, error) {
+// openForEdge parses the flags shared by the edge commands and opens the store;
+// the name is empty for commands that take none.
+func openForEdge(cmd string, args []string, wantName bool) (*store.Store, string, error) {
 	fs := flag.NewFlagSet("edge "+cmd, flag.ContinueOnError)
-	dataDir := dataDirFlag(fs)
+	databaseURL := databaseFlag(fs)
 	var name *string
 	if wantName {
 		name = fs.String("name", "", "name of the edge: lowercase letters, digits and dashes")
@@ -40,22 +41,23 @@ func openRegistry(cmd string, args []string, wantName bool) (*registry.Registry,
 	if wantName && *name == "" {
 		return nil, "", errors.New("--name is required")
 	}
-	reg, err := registry.Open(*dataDir)
+	st, err := openStore(context.Background(), *databaseURL)
 	if err != nil {
 		return nil, "", err
 	}
 	if wantName {
-		return reg, *name, nil
+		return st, *name, nil
 	}
-	return reg, "", nil
+	return st, "", nil
 }
 
 func edgeAdd(args []string, out io.Writer) error {
-	reg, name, err := openRegistry("add", args, true)
+	st, name, err := openForEdge("add", args, true)
 	if err != nil {
 		return err
 	}
-	edge, token, err := reg.Add(name)
+	defer st.Close()
+	edge, token, err := st.AddEdge(context.Background(), name)
 	if err != nil {
 		return err
 	}
@@ -66,11 +68,12 @@ func edgeAdd(args []string, out io.Writer) error {
 }
 
 func edgeList(args []string, out io.Writer) error {
-	reg, _, err := openRegistry("list", args, false)
+	st, _, err := openForEdge("list", args, false)
 	if err != nil {
 		return err
 	}
-	edges, err := reg.List()
+	defer st.Close()
+	edges, err := st.ListEdges(context.Background())
 	if err != nil {
 		return err
 	}
@@ -87,11 +90,12 @@ func edgeList(args []string, out io.Writer) error {
 }
 
 func edgeRevoke(args []string, out io.Writer) error {
-	reg, name, err := openRegistry("revoke", args, true)
+	st, name, err := openForEdge("revoke", args, true)
 	if err != nil {
 		return err
 	}
-	if err := reg.Revoke(name); err != nil {
+	defer st.Close()
+	if err := st.RevokeEdge(context.Background(), name); err != nil {
 		return err
 	}
 	fmt.Fprintf(out, "edge %s revoked\n", name)
