@@ -171,4 +171,17 @@ make help     # everything else
 Commits follow `feat:`, `fix:`, `refactor:`, `perf:`, `docs:`, `test:`, `build:`,
 `ci:` and `chore:`.
 
+## CI and releases
+
+`ci.yml` only says what runs and in which order: `lint`, `test` (against
+TimescaleDB) and `vuln` run in parallel, `build` follows lint and test, and the
+`ci` job at the end is the one check to require. The work is in the reusable
+workflows beside it (`lint.yml`, `test.yml`, `vuln.yml`, `build.yml`).
+
+A tag `vX.Y.Z` on `main` runs the same checks, then `package` and `publish`:
+a GitHub release with archives for linux (amd64, arm64), macOS (arm64) and
+windows (amd64), `SHA256SUMS`, and an attestation of where they were built
+(`gh attestation verify FILE --repo Arylite/netprobe`). A tag with a suffix,
+such as `v0.8.0-rc.1`, makes a pre-release.
+
 License: Apache 2.0.
