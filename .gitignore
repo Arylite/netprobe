@@ -1,0 +1,14 @@
+/bin/
+/dist/
+coverage.out
+coverage.html
+
+.env
+.env.*
+!.env.example
+*.exe
+*.test
+
+node_modules/
+.idea/
+.vscode/
