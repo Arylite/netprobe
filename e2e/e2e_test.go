@@ -27,7 +27,7 @@ func start(t *testing.T) (*central.Server, *edge.Client) {
 	}
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
-	client, err := edge.NewClient(ts.URL)
+	client, err := edge.NewClient(ts.URL, "")
 	if err != nil {
 		t.Fatal(err)
 	}

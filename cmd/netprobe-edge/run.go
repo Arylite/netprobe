@@ -27,7 +27,7 @@ func run(central string, poll time.Duration, level string) error {
 	if err != nil {
 		return err
 	}
-	client, err := edge.NewClient(central)
+	client, err := edge.NewClient(central, "")
 	if err != nil {
 		return err
 	}

@@ -3,6 +3,7 @@ package edge
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -39,7 +40,7 @@ func stubCentral(t *testing.T, polls *atomic.Int32, posted *atomic.Int32) *httpt
 
 func TestNewClientRejectsBadURLs(t *testing.T) {
 	for _, u := range []string{"", "central", "ftp://central", "http://"} {
-		if _, err := NewClient(u); err == nil {
+		if _, err := NewClient(u, ""); err == nil {
 			t.Errorf("NewClient(%q) succeeded", u)
 		}
 	}
@@ -48,7 +49,7 @@ func TestNewClientRejectsBadURLs(t *testing.T) {
 func TestAssignmentsUseTheETag(t *testing.T) {
 	var polls, posted atomic.Int32
 	ts := stubCentral(t, &polls, &posted)
-	c, err := NewClient(ts.URL)
+	c, err := NewClient(ts.URL, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,7 +68,7 @@ func TestAssignmentsRefuseInvalidChecks(t *testing.T) {
 		_, _ = io.WriteString(w, `{"checks":[{"id":"","kind":"tcp"}]}`)
 	}))
 	defer ts.Close()
-	c, _ := NewClient(ts.URL)
+	c, _ := NewClient(ts.URL, "")
 	if _, _, err := c.Assignments(context.Background()); err == nil {
 		t.Fatal("accepted an invalid check")
 	}
@@ -78,7 +79,7 @@ func TestPostResultsErrors(t *testing.T) {
 		http.Error(w, "no", http.StatusBadRequest)
 	}))
 	defer ts.Close()
-	c, _ := NewClient(ts.URL)
+	c, _ := NewClient(ts.URL, "")
 	if err := c.PostResults(context.Background(), []api.Result{{CheckID: "c1", At: time.Now()}}); err == nil {
 		t.Fatal("a 400 was not reported")
 	}
@@ -90,7 +91,7 @@ func TestPostResultsErrors(t *testing.T) {
 func TestAgentPollsUntilCancelled(t *testing.T) {
 	var polls, posted atomic.Int32
 	ts := stubCentral(t, &polls, &posted)
-	c, _ := NewClient(ts.URL)
+	c, _ := NewClient(ts.URL, "")
 	a := &Agent{Client: c, Interval: 10 * time.Millisecond, Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -110,5 +111,51 @@ func TestAgentPollsUntilCancelled(t *testing.T) {
 	case <-done:
 	case <-time.After(5 * time.Second):
 		t.Fatal("Run did not return after cancel")
+	}
+}
+
+func TestTokenIsSentAsABearer(t *testing.T) {
+	var got atomic.Value
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got.Store(r.Header.Get("Authorization"))
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer ts.Close()
+	c, err := NewClient(ts.URL, "np_secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.PostResults(context.Background(), nil); err != nil {
+		t.Fatal(err)
+	}
+	if got.Load() != "Bearer np_secret" {
+		t.Fatalf("Authorization = %v", got.Load())
+	}
+}
+
+func TestUnauthorizedIsReported(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "no", http.StatusUnauthorized)
+	}))
+	defer ts.Close()
+	c, _ := NewClient(ts.URL, "np_wrong")
+	if _, _, err := c.Assignments(context.Background()); !errors.Is(err, ErrUnauthorized) {
+		t.Fatalf("assignments: %v", err)
+	}
+	if err := c.PostResults(context.Background(), nil); !errors.Is(err, ErrUnauthorized) {
+		t.Fatalf("results: %v", err)
+	}
+}
+
+func TestTheTokenNeverTravelsOverPlainHTTPToARemoteCentral(t *testing.T) {
+	for _, u := range []string{"http://central.example.com", "http://10.0.0.5:8080"} {
+		if _, err := NewClient(u, "np_secret"); err == nil {
+			t.Errorf("NewClient(%q) accepted a token over plain HTTP", u)
+		}
+	}
+	for _, u := range []string{"https://central.example.com", "http://127.0.0.1:8080", "http://localhost:8080", "http://[::1]:8080"} {
+		if _, err := NewClient(u, "np_secret"); err != nil {
+			t.Errorf("NewClient(%q): %v", u, err)
+		}
 	}
 }
