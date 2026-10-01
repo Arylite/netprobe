@@ -4,10 +4,11 @@ Network probing for a fleet of machines. **Edges** measure the network from wher
 they are; a **central** assigns their checks, stores the results, alerts, and
 shows them in a web UI.
 
-Status: 0.5. An edge authenticates with its own token, polls the central for its
+Status: 0.6. An edge authenticates with its own token, polls the central for its
 checks, runs them (TCP connect time, HTTP response time) and reports the results
-in batches. Edges, checks and results live in PostgreSQL with TimescaleDB; there
-is no way to read results back over HTTP yet.
+in batches. Edges, checks and results live in PostgreSQL with TimescaleDB, and
+both sides have a `doctor` command. There is no way to read results back over
+HTTP yet.
 
 ## Architecture
 
@@ -20,7 +21,6 @@ edge (Go) --- HTTPS + token: poll assignments, post results ---> central (Go) --
 - The central serves two APIs and no files: the edge API and, from 0.7, an API
   for the web UI. The UI is a separate client, hosted anywhere (static files, its
   own server), and talks to the central like any other client.
-
 - Edges only dial out. They poll `GET /assignments` and post results in batches;
   the poll is also the heartbeat. Plain HTTPS and JSON: it passes any reverse
   proxy and can be tested with curl.
@@ -72,6 +72,28 @@ what is registered, `edge revoke --name paris` cuts an edge off at once.
 
 Results go to a TimescaleDB hypertable, compressed after 7 days and kept until
 you delete them. The extension must be creatable by the database user.
+
+## When something does not work
+
+Run `doctor` where the problem is. It checks what the program needs, in order,
+stops at the first failure and says what to try:
+
+```
+$ netprobe-edge doctor --central https://central.example.com
+ok    config  central https://central.example.com, token set
+ok    dns     central.example.com -> 203.0.113.7
+ok    tcp     connected to central.example.com:443 in 21 ms
+FAIL  tls     TLS handshake failed: x509: certificate signed by unknown authority
+              -> the certificate is not signed by an authority this machine trusts: ...
+skip  health  not run: an earlier step failed
+```
+
+`netprobe-edge doctor` checks the settings, the name, the network path, the
+certificate (and when it expires), the central's health, the token and the
+clocks. `netprobe-central doctor` checks the database, TimescaleDB, the schema,
+the edges and checks, edges that stopped reporting, and how the edge API is
+exposed. Neither changes anything: the central's check reads the database
+without migrating it. The exit status is 1 when a step failed.
 
 ## Security model
 
