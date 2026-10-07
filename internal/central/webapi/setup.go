@@ -122,5 +122,6 @@ func (s *Server) setup(w http.ResponseWriter, r *http.Request, _ caller) {
 		return
 	}
 	s.log.Info("first administrator created", "user", req.Username, "client_ip", ip)
+	s.audit(r, req.Username, "setup", "")
 	writeJSON(w, http.StatusCreated, loginResponse{Token: token, ExpiresAt: expires.Truncate(time.Second), User: userJSON{Username: req.Username, Role: store.RoleAdmin}})
 }

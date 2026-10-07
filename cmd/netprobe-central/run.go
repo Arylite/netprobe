@@ -44,7 +44,8 @@ type serveConfig struct {
 	edgeSilence                           time.Duration
 	alertInterval                         time.Duration
 	// retention is how long results are kept; zero keeps them for ever.
-	retention time.Duration
+	retention      time.Duration
+	auditRetention time.Duration
 }
 
 // surface is one thing the central serves, on its own address.
@@ -66,8 +67,8 @@ func run(cfg serveConfig) error {
 	if err != nil {
 		return err
 	}
-	if cfg.retention < 0 {
-		return errors.New("--retention must not be negative")
+	if cfg.retention < 0 || cfg.auditRetention < 0 {
+		return errors.New("--retention and --audit-retention must not be negative")
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -135,7 +136,7 @@ func run(cfg serveConfig) error {
 	for i, s := range surfaces {
 		go func() { errc <- s.srv.Serve(listeners[i]) }()
 	}
-	go purgeSessions(ctx, log, st)
+	go purgeExpired(ctx, log, st, cfg.auditRetention)
 	engineDone := make(chan struct{})
 	go func() {
 		defer close(engineDone)
@@ -203,7 +204,8 @@ func warnAboutSetup(ctx context.Context, log *slog.Logger, st *store.Store, cfg 
 	}
 }
 
-func purgeSessions(ctx context.Context, log *slog.Logger, st *store.Store) {
+// purgeExpired deletes the sessions that ended and the audit events kept long enough.
+func purgeExpired(ctx context.Context, log *slog.Logger, st *store.Store, auditRetention time.Duration) {
 	ticker := time.NewTicker(purgeEvery)
 	defer ticker.Stop()
 	for {
@@ -215,6 +217,13 @@ func purgeSessions(ctx context.Context, log *slog.Logger, st *store.Store) {
 				log.Warn("purging sessions failed", "err", err)
 			} else if n > 0 {
 				log.Debug("expired sessions purged", "count", n)
+			}
+			if auditRetention > 0 {
+				if n, err := st.PurgeAudit(ctx, time.Now().Add(-auditRetention)); err != nil {
+					log.Warn("purging the audit trail failed", "err", err)
+				} else if n > 0 {
+					log.Debug("old audit events purged", "count", n)
+				}
 			}
 		}
 	}

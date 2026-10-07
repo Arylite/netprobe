@@ -28,6 +28,7 @@ commands:
   channel remove --name NAME
   channel test --name NAME send a test notification
   incident list [--open]   list the incidents, the newest first
+  audit list               list who did what, the newest first
   user add --username NAME --role admin|viewer
                            create an account; the password is read from stdin
   user list                list the accounts
@@ -75,6 +76,8 @@ func dispatch(args []string, out io.Writer) error {
 		return channelCommand(args[1:], out)
 	case "incident":
 		return incidentCommand(args[1:], out)
+	case "audit":
+		return auditCommand(args[1:], out)
 	case "user":
 		return userCommand(args[1:], out)
 	case "secret-key":

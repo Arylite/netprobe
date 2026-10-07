@@ -63,7 +63,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request, _ caller) {
 	switch {
 	case errors.Is(err, store.ErrNotFound):
 		auth.SpendHashingTime(req.Password)
-		s.loginFailed(w, ip, pair)
+		s.loginFailed(w, r, ip, pair, "")
 		return
 	case err != nil:
 		s.unavailable(w, "login", err)
@@ -80,7 +80,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request, _ caller) {
 		return
 	}
 	if !ok {
-		s.loginFailed(w, ip, pair)
+		s.loginFailed(w, r, ip, pair, req.Username)
 		return
 	}
 
@@ -93,13 +93,17 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request, _ caller) {
 	// someone with an account of their own guess other passwords for free.
 	s.byUserIP.Reset(pair)
 	s.log.Info("login", "actor", user.Username, "client_ip", ip)
+	s.audit(r, user.Username, "login", "")
 	writeJSON(w, http.StatusOK, loginResponse{Token: token, ExpiresAt: expires, User: toUserJSON(user)})
 }
 
-func (s *Server) loginFailed(w http.ResponseWriter, ip, pair string) {
+// loginFailed records the attempt. The username is kept only when it is one that
+// exists: a password typed in the wrong field must not end up in the trail.
+func (s *Server) loginFailed(w http.ResponseWriter, r *http.Request, ip, pair, existing string) {
 	s.byIP.Fail(ip)
 	s.byUserIP.Fail(pair)
 	s.log.Debug("login failed", "client_ip", ip)
+	s.audit(r, "", "login.failed", existing)
 	writeError(w, http.StatusUnauthorized, "invalid username or password")
 }
 
@@ -108,6 +112,7 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request, c caller) {
 		s.unavailable(w, "logout", err)
 		return
 	}
+	s.audit(r, c.user.Username, "logout", "")
 	w.WriteHeader(http.StatusNoContent)
 }
 

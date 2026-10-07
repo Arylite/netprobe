@@ -128,3 +128,26 @@ func TestIncidentList(t *testing.T) {
 		t.Fatalf("list --open: %q, %v", out, err)
 	}
 }
+
+func TestAuditList(t *testing.T) {
+	st, url := storetest.OpenURL(t)
+	ctx := context.Background()
+	for _, e := range []store.AuditEvent{
+		{At: time.Now().Add(-time.Hour), Actor: "alice", Action: "edge.create", Target: "paris", ClientIP: "203.0.113.7"},
+		{At: time.Now(), Action: "login.failed", ClientIP: "198.51.100.2"},
+	} {
+		if err := st.RecordAudit(ctx, e); err != nil {
+			t.Fatal(err)
+		}
+	}
+	out, err := runCLI(t, "audit", "list", "--database-url", url)
+	if err != nil || !strings.Contains(out, "alice") || !strings.Contains(out, "edge.create") || !strings.Contains(out, "paris") || !strings.Contains(out, "198.51.100.2") {
+		t.Fatalf("list: %q, %v", out, err)
+	}
+	if strings.Index(out, "login.failed") > strings.Index(out, "edge.create") {
+		t.Fatalf("the newest is not first: %q", out)
+	}
+	if _, err := runCLI(t, "audit"); err == nil {
+		t.Fatal("no action was accepted")
+	}
+}

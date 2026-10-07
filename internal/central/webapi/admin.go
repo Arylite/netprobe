@@ -74,6 +74,7 @@ func (s *Server) createEdge(w http.ResponseWriter, r *http.Request, c caller) {
 		return
 	}
 	s.log.Info("edge added", "actor", c.user.Username, "edge_id", edge.ID, "edge", edge.Name)
+	s.audit(r, c.user.Username, "edge.create", edge.Name)
 	writeJSON(w, http.StatusCreated, createEdgeResponse{ID: edge.ID, Name: edge.Name, Token: token})
 }
 
@@ -84,6 +85,7 @@ func (s *Server) revokeEdge(w http.ResponseWriter, r *http.Request, c caller) {
 		return
 	}
 	s.log.Info("edge revoked", "actor", c.user.Username, "edge", name)
+	s.audit(r, c.user.Username, "edge.revoke", name)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -101,6 +103,7 @@ func (s *Server) createCheck(w http.ResponseWriter, r *http.Request, c caller) {
 		return
 	}
 	s.log.Info("check added", "actor", c.user.Username, "check_id", check.ID)
+	s.audit(r, c.user.Username, "check.create", check.ID)
 	writeJSON(w, http.StatusCreated, check)
 }
 
@@ -111,6 +114,7 @@ func (s *Server) removeCheck(w http.ResponseWriter, r *http.Request, c caller) {
 		return
 	}
 	s.log.Info("check removed", "actor", c.user.Username, "check_id", id)
+	s.audit(r, c.user.Username, "check.remove", id)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -154,6 +158,7 @@ func (s *Server) createUser(w http.ResponseWriter, r *http.Request, c caller) {
 		return
 	}
 	s.log.Info("user added", "actor", c.user.Username, "user", req.Username, "role", req.Role)
+	s.audit(r, c.user.Username, "user.create", req.Username)
 	writeJSON(w, http.StatusCreated, userJSON{Username: req.Username, Role: req.Role})
 }
 
@@ -168,6 +173,7 @@ func (s *Server) deleteUser(w http.ResponseWriter, r *http.Request, c caller) {
 		return
 	}
 	s.log.Info("user deleted", "actor", c.user.Username, "user", username)
+	s.audit(r, c.user.Username, "user.delete", username)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -224,5 +230,6 @@ func (s *Server) changePassword(w http.ResponseWriter, r *http.Request, c caller
 	}
 	s.byUserIP.Reset(pair)
 	s.log.Info("password changed", "actor", c.user.Username)
+	s.audit(r, c.user.Username, "password.change", "")
 	w.WriteHeader(http.StatusNoContent)
 }

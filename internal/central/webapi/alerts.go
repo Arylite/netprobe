@@ -176,6 +176,7 @@ func (s *Server) createChannel(w http.ResponseWriter, r *http.Request, c caller)
 	}
 	// The address is not logged: it may hold a secret.
 	s.log.Info("channel added", "actor", c.user.Username, "channel", ch.Name)
+	s.audit(r, c.user.Username, "channel.create", ch.Name)
 	writeJSON(w, http.StatusCreated, toChannelJSON(ch))
 }
 
@@ -186,6 +187,7 @@ func (s *Server) removeChannel(w http.ResponseWriter, r *http.Request, c caller)
 		return
 	}
 	s.log.Info("channel removed", "actor", c.user.Username, "channel", name)
+	s.audit(r, c.user.Username, "channel.remove", name)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -201,9 +203,11 @@ func (s *Server) testChannel(w http.ResponseWriter, r *http.Request, c caller) {
 	}
 	if err := alert.SendTest(r.Context(), s.sender, ch); err != nil {
 		s.log.Info("channel test failed", "actor", c.user.Username, "channel", name, "err", err)
+		s.audit(r, c.user.Username, "channel.test", name)
 		writeError(w, http.StatusBadGateway, "the channel did not accept the test: "+err.Error())
 		return
 	}
 	s.log.Info("channel tested", "actor", c.user.Username, "channel", name)
+	s.audit(r, c.user.Username, "channel.test", name)
 	w.WriteHeader(http.StatusNoContent)
 }

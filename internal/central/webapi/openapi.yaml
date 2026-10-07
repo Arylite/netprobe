@@ -304,6 +304,29 @@ paths:
                     items: { $ref: "#/components/schemas/Incident" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+  /api/v1/audit:
+    get:
+      summary: The latest security-relevant events, newest first (administrator)
+      description: >
+        Sign-ins and refused sign-ins, and every change of edges, checks, channels,
+        users and passwords, with who did it and from which address.
+      parameters:
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 500, default: 100 } }
+      responses:
+        "200":
+          description: The events.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [events]
+                properties:
+                  events:
+                    type: array
+                    items: { $ref: "#/components/schemas/AuditEvent" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
   /api/v1/channels:
     get:
       summary: List the notification channels (administrator)
@@ -508,6 +531,16 @@ components:
         resolved_at: { type: string, format: date-time, description: "Absent while it is going on." }
         detail: { type: string }
         resolution: { type: string, description: "recovered, edge revoked or check removed." }
+    AuditEvent:
+      type: object
+      required: [id, at, action]
+      properties:
+        id: { type: integer, format: int64 }
+        at: { type: string, format: date-time }
+        actor: { type: string, description: "Absent when nobody was signed in." }
+        action: { type: string, description: "login, login.failed, logout, setup, password.change, edge.create, edge.revoke, check.create, check.remove, channel.create, channel.remove, channel.test, user.create or user.delete." }
+        target: { type: string, description: "What it was done to." }
+        client_ip: { type: string }
     Channel:
       type: object
       required: [name, url, has_secret, created_at]

@@ -11,7 +11,10 @@ import (
 	"github.com/Arylite/netprobe/internal/probe"
 )
 
-const defaultSessionTTL = 12 * time.Hour
+const (
+	defaultSessionTTL     = 12 * time.Hour
+	defaultAuditRetention = 365 * 24 * time.Hour
+)
 
 func serve(args []string) error {
 	ttlDefault, err := cli.GetenvDuration("NETPROBE_SESSION_TTL", defaultSessionTTL)
@@ -34,6 +37,10 @@ func serve(args []string) error {
 	if err != nil {
 		return err
 	}
+	auditDefault, err := cli.GetenvDuration("NETPROBE_AUDIT_RETENTION", defaultAuditRetention)
+	if err != nil {
+		return err
+	}
 	var cfg serveConfig
 	var origins, proxies string
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
@@ -48,6 +55,7 @@ func serve(args []string) error {
 	fs.StringVar(&cfg.edgeClientCA, "edge-client-ca", cli.Getenv("NETPROBE_EDGE_CLIENT_CA", ""), "CA file (PEM): edges must present a client certificate signed by it (NETPROBE_EDGE_CLIENT_CA)")
 	fs.StringVar(&cfg.apiTLSCert, "api-tls-cert", cli.Getenv("NETPROBE_API_TLS_CERT", ""), "certificate file (PEM) to serve the UI API over TLS 1.3 (NETPROBE_API_TLS_CERT)")
 	fs.StringVar(&cfg.apiTLSKey, "api-tls-key", cli.Getenv("NETPROBE_API_TLS_KEY", ""), "private key file of that certificate (NETPROBE_API_TLS_KEY)")
+	fs.DurationVar(&cfg.auditRetention, "audit-retention", auditDefault, "how long the audit trail is kept, 0 for ever (NETPROBE_AUDIT_RETENTION)")
 	fs.IntVar(&cfg.alertFailures, "alert-failures", failuresDefault, "failures in a row that open an incident for a check on an edge (NETPROBE_ALERT_FAILURES)")
 	fs.DurationVar(&cfg.edgeSilence, "edge-silence", silenceDefault, "how long an edge may go without a result before it is reported (NETPROBE_EDGE_SILENCE)")
 	fs.DurationVar(&cfg.alertInterval, "alert-interval", alertIntervalDefault, "how often results are evaluated and notifications sent (NETPROBE_ALERT_INTERVAL)")
