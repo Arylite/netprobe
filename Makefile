@@ -7,7 +7,7 @@ PKG     := github.com/Arylite/netprobe/internal/version
 LDFLAGS := -s -w -X $(PKG).Version=$(VERSION) -X $(PKG).Commit=$(COMMIT) -X $(PKG).Date=$(DATE)
 
 .DEFAULT_GOAL := help
-.PHONY: help build test test-db dev-db lint fmt clean
+.PHONY: help build test test-db dev-db lint fmt web web-test clean
 
 help: ## List the targets
 	@grep -hE '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F ':.*## ' '{printf "  %-8s %s\n", $$1, $$2}'
@@ -31,5 +31,11 @@ lint: ## Run go vet and golangci-lint
 fmt: ## Format the code
 	golangci-lint fmt ./...
 
+web: ## Build the web UI into web/dist
+	cd web && npm ci && npm run build
+
+web-test: ## Type-check and test the web UI
+	cd web && npm ci && npm run typecheck && npm test
+
 clean: ## Remove the build output
-	rm -rf bin
+	rm -rf bin web/dist
