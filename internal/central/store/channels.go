@@ -47,6 +47,14 @@ func ValidateChannelURL(raw string) error {
 	return nil
 }
 
+// ValidateChannelSecret reports why a secret cannot be used to sign.
+func ValidateChannelSecret(secret string) error {
+	if len(secret) > maxChannelSecretLength {
+		return fmt.Errorf("channel secret is longer than %d bytes", maxChannelSecretLength)
+	}
+	return nil
+}
+
 // AddChannel registers a webhook.
 func (s *Store) AddChannel(ctx context.Context, name, rawURL, secret string) (Channel, error) {
 	if err := ValidateChannelName(name); err != nil {
@@ -55,8 +63,8 @@ func (s *Store) AddChannel(ctx context.Context, name, rawURL, secret string) (Ch
 	if err := ValidateChannelURL(rawURL); err != nil {
 		return Channel{}, err
 	}
-	if len(secret) > maxChannelSecretLength {
-		return Channel{}, fmt.Errorf("channel secret is longer than %d bytes", maxChannelSecretLength)
+	if err := ValidateChannelSecret(secret); err != nil {
+		return Channel{}, err
 	}
 	c := Channel{Name: name, URL: rawURL, Secret: secret, CreatedAt: time.Now().UTC()}
 	_, err := s.pool.Exec(ctx,

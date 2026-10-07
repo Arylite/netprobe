@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/Arylite/netprobe/internal/central/alert"
 	"github.com/Arylite/netprobe/internal/central/auth"
 	"github.com/Arylite/netprobe/internal/central/store"
 )
@@ -25,6 +26,9 @@ type Config struct {
 	AllowedOrigins []string
 	// SessionTTL is how long a login lasts; zero means 12 hours.
 	SessionTTL time.Duration
+	// Sender delivers the test notifications of a channel; nil posts to its
+	// webhook.
+	Sender alert.Sender
 }
 
 // Server is the JSON API of the web UI. It authenticates with bearer tokens:
@@ -34,6 +38,7 @@ type Server struct {
 	store   *store.Store
 	origins map[string]bool
 	ttl     time.Duration
+	sender  alert.Sender
 
 	byIP     *auth.Limiter
 	byUserIP *auth.Limiter
@@ -49,6 +54,10 @@ func New(log *slog.Logger, st *store.Store, cfg Config) (*Server, error) {
 	if ttl == 0 {
 		ttl = defaultTTL
 	}
+	sender := cfg.Sender
+	if sender == nil {
+		sender = alert.NewWebhook()
+	}
 	set := make(map[string]bool, len(origins))
 	for _, o := range origins {
 		set[o] = true
@@ -58,6 +67,7 @@ func New(log *slog.Logger, st *store.Store, cfg Config) (*Server, error) {
 		store:    st,
 		origins:  set,
 		ttl:      ttl,
+		sender:   sender,
 		byIP:     auth.NewLimiter(maxByIP, failureWindow),
 		byUserIP: auth.NewLimiter(maxByUserIP, failureWindow),
 	}, nil
@@ -84,6 +94,7 @@ func (s *Server) routes() []route {
 	all = append(all, s.sessionRoutes()...)
 	all = append(all, s.readRoutes()...)
 	all = append(all, s.adminRoutes()...)
+	all = append(all, s.alertRoutes()...)
 	all = append(all, s.specRoutes()...)
 	return all
 }

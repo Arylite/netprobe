@@ -395,14 +395,14 @@ func TestTestSendsATestNotification(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := f.engine.Test(context.Background(), ch); err != nil {
+	if err := alert.SendTest(context.Background(), f.sender, ch); err != nil {
 		t.Fatal(err)
 	}
 	if ev := f.sender.events("ops"); !equal(ev, []string{alert.EventTest}) || f.sender.sent[0].payload.Incident != nil {
 		t.Fatalf("sent: %+v", f.sender.sent)
 	}
 	f.sender.fail["ops"] = true
-	if err := f.engine.Test(context.Background(), ch); err == nil {
+	if err := alert.SendTest(context.Background(), f.sender, ch); err == nil {
 		t.Fatal("a failure was hidden")
 	}
 }

@@ -217,6 +217,34 @@ func TestPendingNotifications(t *testing.T) {
 		t.Fatalf("stale: %+v", got)
 	}
 
+	// An incident whose opening the channel never heard of is not announced as
+	// resolved either.
+	if _, err := s.OpenIncident(ctx, store.IncidentEdge, "", edge.ID, "silent", now); err != nil {
+		t.Fatal(err)
+	}
+	var unheard store.Incident
+	pending, _ := s.PendingNotifications(ctx, now.Add(-time.Hour))
+	for _, p := range pending {
+		if p.Incident.Kind == store.IncidentEdge {
+			unheard = p.Incident
+		}
+	}
+	if unheard.ID == 0 {
+		t.Fatalf("the opening of the second incident is not pending: %+v", pending)
+	}
+	if err := s.ResolveIncident(ctx, unheard.ID, now.Add(time.Minute), store.ResolutionRecovered); err != nil {
+		t.Fatal(err)
+	}
+	got, _ = s.PendingNotifications(ctx, now.Add(-time.Hour))
+	if len(got) != 2 {
+		t.Fatalf("pending: %+v", got)
+	}
+	for _, p := range got {
+		if p.Incident.ID == unheard.ID && p.Event != store.EventOpened {
+			t.Fatalf("resolved without having been opened: %+v", p)
+		}
+	}
+
 	// Removing the channel forgets what it was told: a new one of that name
 	// starts clean and only hears what comes after it.
 	if err := s.RemoveChannel(ctx, "ops"); err != nil {

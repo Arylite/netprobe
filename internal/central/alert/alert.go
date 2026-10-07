@@ -260,7 +260,7 @@ func (e *Engine) deliver(ctx context.Context) error {
 		if failed[n.Channel.Name] {
 			continue
 		}
-		if err := e.send(ctx, n.Channel, NewPayload(n)); err != nil {
+		if err := send(ctx, e.sender, n.Channel, NewPayload(n)); err != nil {
 			failed[n.Channel.Name] = true
 			e.log.Warn("notification failed, it will be tried again", "channel", n.Channel.Name, "event", n.Event, "incident_id", n.Incident.ID, "err", err)
 			continue
@@ -270,16 +270,4 @@ func (e *Engine) deliver(ctx context.Context) error {
 		}
 	}
 	return errors.Join(errs...)
-}
-
-// send delivers one payload within the time a channel is given.
-func (e *Engine) send(ctx context.Context, ch store.Channel, p Payload) error {
-	ctx, cancel := context.WithTimeout(ctx, webhookTimeout)
-	defer cancel()
-	return e.sender.Send(ctx, ch, p)
-}
-
-// Test sends a test notification to a channel, to check that it works.
-func (e *Engine) Test(ctx context.Context, ch store.Channel) error {
-	return e.send(ctx, ch, Payload{Event: EventTest, Text: "[netprobe] this is a test notification"})
 }

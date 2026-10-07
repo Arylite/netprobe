@@ -228,6 +228,110 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
+  /api/v1/status:
+    get:
+      summary: How every check does, on each edge, over the last day
+      description: >
+        For each check, one row per active edge that reported in the window: its
+        latest result, how many runs there were, the share that succeeded and the
+        95th percentile of the round-trip time of the successful ones.
+      responses:
+        "200":
+          description: The checks with their rows.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [window_seconds, checks]
+                properties:
+                  window_seconds: { type: integer }
+                  checks:
+                    type: array
+                    items: { $ref: "#/components/schemas/CheckStatus" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /api/v1/incidents:
+    get:
+      summary: The latest incidents, newest first
+      description: >
+        An incident opens when a check keeps failing on an edge, or when an edge
+        stops reporting, and resolves when it recovers.
+      parameters:
+        - { name: state, in: query, schema: { type: string, enum: [all, open], default: all } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 500, default: 100 } }
+      responses:
+        "200":
+          description: The incidents.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [incidents]
+                properties:
+                  incidents:
+                    type: array
+                    items: { $ref: "#/components/schemas/Incident" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /api/v1/channels:
+    get:
+      summary: List the notification channels (administrator)
+      responses:
+        "200":
+          description: The channels.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [channels]
+                properties:
+                  channels:
+                    type: array
+                    items: { $ref: "#/components/schemas/Channel" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      summary: Add a notification channel (administrator)
+      description: >
+        A webhook that receives a JSON POST when an incident opens or resolves. A
+        channel only hears of incidents that start after it was added.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NewChannel" }
+      responses:
+        "201":
+          description: The channel.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Channel" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/Conflict" }
+  /api/v1/channels/{name}:
+    delete:
+      summary: Remove a notification channel (administrator)
+      parameters:
+        - { name: name, in: path, required: true, schema: { type: string } }
+      responses:
+        "204": { description: Removed. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/v1/channels/{name}/test:
+    post:
+      summary: Send a test notification to a channel (administrator)
+      parameters:
+        - { name: name, in: path, required: true, schema: { type: string } }
+      responses:
+        "204": { description: The channel accepted it. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "502":
+          description: The channel did not accept it; the message says why.
+          content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
 components:
   securitySchemes:
     bearer:
@@ -323,3 +427,60 @@ components:
         ok: { type: boolean }
         rtt_millis: { type: number }
         error: { type: string }
+    CheckStatus:
+      type: object
+      required: [id, kind, target, interval_seconds, edges]
+      properties:
+        id: { type: string }
+        kind: { type: string, enum: [tcp, http] }
+        target: { type: string }
+        interval_seconds: { type: integer }
+        edges:
+          type: array
+          items: { $ref: "#/components/schemas/EdgeStatus" }
+    EdgeStatus:
+      type: object
+      required: [edge_id, edge, last_at, ok, rtt_millis, samples, success_ratio]
+      properties:
+        edge_id: { type: string }
+        edge: { type: string, description: "Name of the edge." }
+        last_at: { type: string, format: date-time }
+        ok: { type: boolean, description: "Whether the latest run succeeded." }
+        rtt_millis: { type: number, description: "Round-trip time of the latest run." }
+        error: { type: string }
+        samples: { type: integer, description: "Runs in the window." }
+        success_ratio: { type: number, minimum: 0, maximum: 1 }
+        p95_rtt_millis: { type: number, description: "Absent when no run succeeded." }
+    Incident:
+      type: object
+      required: [id, kind, edge_id, edge, started_at]
+      properties:
+        id: { type: integer, format: int64 }
+        kind: { type: string, enum: [check, edge], description: "A check that keeps failing on an edge, or an edge that stopped reporting." }
+        check_id: { type: string, description: "Absent for an edge incident." }
+        edge_id: { type: string }
+        edge: { type: string, description: "Name of the edge." }
+        started_at: { type: string, format: date-time }
+        resolved_at: { type: string, format: date-time, description: "Absent while it is going on." }
+        detail: { type: string }
+        resolution: { type: string, description: "recovered, edge revoked or check removed." }
+    Channel:
+      type: object
+      required: [name, url, has_secret, created_at]
+      properties:
+        name: { type: string }
+        url: { type: string }
+        has_secret: { type: boolean, description: "A secret signs what is sent; it is never returned." }
+        created_at: { type: string, format: date-time }
+    NewChannel:
+      type: object
+      required: [name, url]
+      properties:
+        name: { type: string, description: "1 to 63 lowercase letters, digits or dashes." }
+        url: { type: string, description: "An http:// or https:// address, without credentials." }
+        secret:
+          type: string
+          maxLength: 256
+          description: >
+            Signs each notification: X-Netprobe-Signature is sha256= and the hex
+            HMAC-SHA256 of X-Netprobe-Timestamp, a dot and the body.

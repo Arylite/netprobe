@@ -78,6 +78,18 @@ func text(event string, i store.Incident) string {
 	return fmt.Sprintf("[netprobe] %s: incident closed (%s)", subject, i.Resolution)
 }
 
+// send delivers a payload within the time a channel is given.
+func send(ctx context.Context, s Sender, ch store.Channel, p Payload) error {
+	ctx, cancel := context.WithTimeout(ctx, webhookTimeout)
+	defer cancel()
+	return s.Send(ctx, ch, p)
+}
+
+// SendTest sends a test notification, to check that a channel works.
+func SendTest(ctx context.Context, s Sender, ch store.Channel) error {
+	return send(ctx, s, ch, Payload{Event: EventTest, Text: "[netprobe] this is a test notification"})
+}
+
 // Sender delivers a payload to a channel.
 type Sender interface {
 	Send(ctx context.Context, ch store.Channel, p Payload) error
