@@ -7,6 +7,7 @@ import (
 	"github.com/Arylite/netprobe/internal/api"
 	"github.com/Arylite/netprobe/internal/central/auth"
 	"github.com/Arylite/netprobe/internal/central/store"
+	"github.com/Arylite/netprobe/internal/logsafe"
 )
 
 type createEdgeRequest struct {
@@ -73,7 +74,7 @@ func (s *Server) createEdge(w http.ResponseWriter, r *http.Request, c caller) {
 		s.storeError(w, "add edge", err)
 		return
 	}
-	s.log.Info("edge added", "actor", c.user.Username, "edge_id", edge.ID, "edge", edge.Name)
+	s.log.Info("edge added", "actor", logsafe.Line(c.user.Username), "edge_id", edge.ID, "edge", logsafe.Line(edge.Name))
 	s.audit(r, c.user.Username, "edge.create", edge.Name)
 	writeJSON(w, http.StatusCreated, createEdgeResponse{ID: edge.ID, Name: edge.Name, Token: token})
 }
@@ -84,7 +85,7 @@ func (s *Server) revokeEdge(w http.ResponseWriter, r *http.Request, c caller) {
 		s.storeError(w, "revoke edge", err)
 		return
 	}
-	s.log.Info("edge revoked", "actor", c.user.Username, "edge", name)
+	s.log.Info("edge revoked", "actor", logsafe.Line(c.user.Username), "edge", logsafe.Line(name))
 	s.audit(r, c.user.Username, "edge.revoke", name)
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -102,7 +103,7 @@ func (s *Server) createCheck(w http.ResponseWriter, r *http.Request, c caller) {
 		s.storeError(w, "add check", err)
 		return
 	}
-	s.log.Info("check added", "actor", c.user.Username, "check_id", check.ID)
+	s.log.Info("check added", "actor", logsafe.Line(c.user.Username), "check_id", logsafe.Line(check.ID))
 	s.audit(r, c.user.Username, "check.create", check.ID)
 	writeJSON(w, http.StatusCreated, check)
 }
@@ -113,7 +114,7 @@ func (s *Server) removeCheck(w http.ResponseWriter, r *http.Request, c caller) {
 		s.storeError(w, "remove check", err)
 		return
 	}
-	s.log.Info("check removed", "actor", c.user.Username, "check_id", id)
+	s.log.Info("check removed", "actor", logsafe.Line(c.user.Username), "check_id", logsafe.Line(id))
 	s.audit(r, c.user.Username, "check.remove", id)
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -157,7 +158,7 @@ func (s *Server) createUser(w http.ResponseWriter, r *http.Request, c caller) {
 		s.storeError(w, "add user", err)
 		return
 	}
-	s.log.Info("user added", "actor", c.user.Username, "user", req.Username, "role", req.Role)
+	s.log.Info("user added", "actor", logsafe.Line(c.user.Username), "user", logsafe.Line(req.Username), "role", logsafe.Line(req.Role))
 	s.audit(r, c.user.Username, "user.create", req.Username)
 	writeJSON(w, http.StatusCreated, userJSON{Username: req.Username, Role: req.Role})
 }
@@ -172,7 +173,7 @@ func (s *Server) deleteUser(w http.ResponseWriter, r *http.Request, c caller) {
 		s.storeError(w, "delete user", err)
 		return
 	}
-	s.log.Info("user deleted", "actor", c.user.Username, "user", username)
+	s.log.Info("user deleted", "actor", logsafe.Line(c.user.Username), "user", logsafe.Line(username))
 	s.audit(r, c.user.Username, "user.delete", username)
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -229,7 +230,7 @@ func (s *Server) changePassword(w http.ResponseWriter, r *http.Request, c caller
 		return
 	}
 	s.byUserIP.Reset(pair)
-	s.log.Info("password changed", "actor", c.user.Username)
+	s.log.Info("password changed", "actor", logsafe.Line(c.user.Username))
 	s.audit(r, c.user.Username, "password.change", "")
 	w.WriteHeader(http.StatusNoContent)
 }

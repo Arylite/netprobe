@@ -9,6 +9,7 @@ import (
 	"github.com/Arylite/netprobe/internal/central/alert"
 	"github.com/Arylite/netprobe/internal/central/auth"
 	"github.com/Arylite/netprobe/internal/central/store"
+	"github.com/Arylite/netprobe/internal/logsafe"
 	"github.com/Arylite/netprobe/internal/probe"
 )
 
@@ -186,7 +187,7 @@ func (s *Server) require(role string, h authed) http.HandlerFunc {
 // unavailable answers 503 for a failure of the database, which is the
 // central's problem and must not look like a refused credential.
 func (s *Server) unavailable(w http.ResponseWriter, op string, err error) {
-	s.log.Error("request failed", "op", op, "err", err)
+	s.log.Error("request failed", "op", op, "err", logsafe.Line(err.Error()))
 	writeError(w, http.StatusServiceUnavailable, "service unavailable")
 }
 

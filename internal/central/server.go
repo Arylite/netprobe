@@ -11,6 +11,7 @@ import (
 	"github.com/Arylite/netprobe/internal/api"
 	"github.com/Arylite/netprobe/internal/central/auth"
 	"github.com/Arylite/netprobe/internal/central/store"
+	"github.com/Arylite/netprobe/internal/logsafe"
 )
 
 const maxBodyBytes = 1 << 20
@@ -69,7 +70,7 @@ func (s *Server) authenticated(next func(http.ResponseWriter, *http.Request, sto
 			}
 		}
 		if !ok {
-			s.log.Debug("unauthorized request", "path", r.URL.Path, "client_ip", s.proxies.ClientIP(r))
+			s.log.Debug("unauthorized request", "path", logsafe.Line(r.URL.Path), "client_ip", s.proxies.ClientIP(r))
 			w.Header().Set("WWW-Authenticate", "Bearer")
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
@@ -81,7 +82,7 @@ func (s *Server) authenticated(next func(http.ResponseWriter, *http.Request, sto
 // unavailable answers 503 for a failure of the database, which is the central's
 // problem and must not look like a refused token.
 func (s *Server) unavailable(w http.ResponseWriter, op string, err error) {
-	s.log.Error("request failed", "op", op, "err", err)
+	s.log.Error("request failed", "op", op, "err", logsafe.Line(err.Error()))
 	http.Error(w, "service unavailable", http.StatusServiceUnavailable)
 }
 
@@ -124,6 +125,6 @@ func (s *Server) postResults(w http.ResponseWriter, r *http.Request, edge store.
 		s.unavailable(w, "insert results", err)
 		return
 	}
-	s.log.Debug("results received", "edge_id", edge.ID, "edge", edge.Name, "count", len(req.Results))
+	s.log.Debug("results received", "edge_id", edge.ID, "edge", logsafe.Line(edge.Name), "count", len(req.Results))
 	w.WriteHeader(http.StatusNoContent)
 }

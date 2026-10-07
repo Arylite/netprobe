@@ -7,6 +7,7 @@ import (
 
 	"github.com/Arylite/netprobe/internal/central/alert"
 	"github.com/Arylite/netprobe/internal/central/store"
+	"github.com/Arylite/netprobe/internal/logsafe"
 )
 
 // statusWindow is the period the dashboard summarises.
@@ -175,7 +176,7 @@ func (s *Server) createChannel(w http.ResponseWriter, r *http.Request, c caller)
 		return
 	}
 	// The address is not logged: it may hold a secret.
-	s.log.Info("channel added", "actor", c.user.Username, "channel", ch.Name)
+	s.log.Info("channel added", "actor", logsafe.Line(c.user.Username), "channel", logsafe.Line(ch.Name))
 	s.audit(r, c.user.Username, "channel.create", ch.Name)
 	writeJSON(w, http.StatusCreated, toChannelJSON(ch))
 }
@@ -186,7 +187,7 @@ func (s *Server) removeChannel(w http.ResponseWriter, r *http.Request, c caller)
 		s.storeError(w, "remove channel", err)
 		return
 	}
-	s.log.Info("channel removed", "actor", c.user.Username, "channel", name)
+	s.log.Info("channel removed", "actor", logsafe.Line(c.user.Username), "channel", logsafe.Line(name))
 	s.audit(r, c.user.Username, "channel.remove", name)
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -202,12 +203,12 @@ func (s *Server) testChannel(w http.ResponseWriter, r *http.Request, c caller) {
 		return
 	}
 	if err := alert.SendTest(r.Context(), s.sender, ch); err != nil {
-		s.log.Info("channel test failed", "actor", c.user.Username, "channel", name, "err", err)
+		s.log.Info("channel test failed", "actor", logsafe.Line(c.user.Username), "channel", logsafe.Line(name), "err", logsafe.Line(err.Error()))
 		s.audit(r, c.user.Username, "channel.test", name)
 		writeError(w, http.StatusBadGateway, "the channel did not accept the test: "+err.Error())
 		return
 	}
-	s.log.Info("channel tested", "actor", c.user.Username, "channel", name)
+	s.log.Info("channel tested", "actor", logsafe.Line(c.user.Username), "channel", logsafe.Line(name))
 	s.audit(r, c.user.Username, "channel.test", name)
 	w.WriteHeader(http.StatusNoContent)
 }

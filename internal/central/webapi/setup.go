@@ -12,6 +12,7 @@ import (
 
 	"github.com/Arylite/netprobe/internal/central/auth"
 	"github.com/Arylite/netprobe/internal/central/store"
+	"github.com/Arylite/netprobe/internal/logsafe"
 )
 
 const (
@@ -121,7 +122,7 @@ func (s *Server) setup(w http.ResponseWriter, r *http.Request, _ caller) {
 		s.unavailable(w, "create session", err)
 		return
 	}
-	s.log.Info("first administrator created", "user", req.Username, "client_ip", ip)
+	s.log.Info("first administrator created", "user", logsafe.Line(req.Username), "client_ip", ip)
 	s.audit(r, req.Username, "setup", "")
 	writeJSON(w, http.StatusCreated, loginResponse{Token: token, ExpiresAt: expires.Truncate(time.Second), User: userJSON{Username: req.Username, Role: store.RoleAdmin}})
 }

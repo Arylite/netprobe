@@ -1,13 +1,13 @@
 package webapi
 
 import (
+	"errors"
 	"net/http"
 	"time"
 
-	"errors"
-
 	"github.com/Arylite/netprobe/internal/central/auth"
 	"github.com/Arylite/netprobe/internal/central/store"
+	"github.com/Arylite/netprobe/internal/logsafe"
 )
 
 const maxUsernameLength = 64
@@ -92,7 +92,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request, _ caller) {
 	// The address keeps its failures: resetting them on a success would let
 	// someone with an account of their own guess other passwords for free.
 	s.byUserIP.Reset(pair)
-	s.log.Info("login", "actor", user.Username, "client_ip", ip)
+	s.log.Info("login", "actor", logsafe.Line(user.Username), "client_ip", ip)
 	s.audit(r, user.Username, "login", "")
 	writeJSON(w, http.StatusOK, loginResponse{Token: token, ExpiresAt: expires, User: toUserJSON(user)})
 }
