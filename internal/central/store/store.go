@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -32,6 +33,7 @@ func WithCipher(c *Cipher) Option { return func(s *Store) { s.cipher = c } }
 
 // Open connects to the database and brings its schema up to date.
 func Open(ctx context.Context, url string, opts ...Option) (*Store, error) {
+	updateTimescale(ctx, url)
 	pool, err := pgxpool.New(ctx, url)
 	if err != nil {
 		return nil, fmt.Errorf("connect to the database: %w", err)
@@ -49,6 +51,20 @@ func Open(ctx context.Context, url string, opts ...Option) (*Store, error) {
 		return nil, err
 	}
 	return s, nil
+}
+
+// updateTimescale brings the extension to the version the server has, which a
+// new image brings without touching the database. It must be the first command
+// of a session, so it has a connection of its own. It is best effort: a database
+// without the extension yet, or a user who may not update it, is left to the
+// migrations and to the diagnostics.
+func updateTimescale(ctx context.Context, url string) {
+	conn, err := pgx.Connect(ctx, url)
+	if err != nil {
+		return
+	}
+	defer func() { _ = conn.Close(context.WithoutCancel(ctx)) }()
+	_, _ = conn.Exec(ctx, "ALTER EXTENSION timescaledb UPDATE")
 }
 
 // Close releases the connections.

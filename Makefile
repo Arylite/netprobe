@@ -22,7 +22,8 @@ test-db: ## Run all the tests against the database of dev-db
 	NETPROBE_TEST_DATABASE_URL="$(DB_URL)" go test -race -count=1 ./...
 
 dev-db: ## Start a TimescaleDB for development and tests on 127.0.0.1:5432
-	$(CONTAINER) run -d --name netprobe-db -p 127.0.0.1:5432:5432 -e POSTGRES_USER=netprobe -e POSTGRES_PASSWORD=netprobe -e POSTGRES_DB=netprobe timescale/timescaledb:2.30.1-pg18
+	$(CONTAINER) build -q -t netprobe-db deploy/db
+	$(CONTAINER) run -d --name netprobe-db -p 127.0.0.1:5432:5432 -e POSTGRES_USER=netprobe -e POSTGRES_PASSWORD=netprobe -e POSTGRES_DB=netprobe netprobe-db
 
 lint: ## Run go vet and golangci-lint
 	go vet ./...

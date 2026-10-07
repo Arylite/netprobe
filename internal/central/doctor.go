@@ -109,6 +109,8 @@ func DoctorSteps(cfg DoctorConfig) ([]doctor.Step, func()) {
 		}},
 		{Name: "timescaledb", Run: func(context.Context) doctor.Outcome {
 			switch {
+			case info.TimescaleVersion != "" && info.TimescaleLatest != "" && info.TimescaleVersion != info.TimescaleLatest:
+				return doctor.Warning("TimescaleDB "+info.TimescaleVersion+" is created in this database, the server has "+info.TimescaleLatest, "the next start of 'serve' updates it, or run ALTER EXTENSION timescaledb UPDATE as the first command of a session")
 			case info.TimescaleVersion != "":
 				return doctor.Pass("TimescaleDB " + info.TimescaleVersion)
 			case !info.TimescaleAvailable:

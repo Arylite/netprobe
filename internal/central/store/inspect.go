@@ -12,6 +12,9 @@ import (
 type Info struct {
 	ServerVersion    string
 	TimescaleVersion string // empty when the extension is not created in this database
+	// TimescaleLatest is the version the server has; it differs from
+	// TimescaleVersion until the extension is updated.
+	TimescaleLatest string
 	// TimescaleAvailable tells whether the server has the extension at all.
 	TimescaleAvailable bool
 	SchemaVersion      int // 0 when no migration was applied
@@ -38,6 +41,11 @@ func Inspect(ctx context.Context, url string) (Info, error) {
 
 	if err := conn.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'timescaledb')`).Scan(&info.TimescaleAvailable); err != nil {
 		return Info{}, fmt.Errorf("read the available extensions: %w", err)
+	}
+	if info.TimescaleAvailable {
+		if err := conn.QueryRow(ctx, `SELECT default_version FROM pg_available_extensions WHERE name = 'timescaledb'`).Scan(&info.TimescaleLatest); err != nil {
+			return Info{}, fmt.Errorf("read the available extensions: %w", err)
+		}
 	}
 
 	var hasTable bool
