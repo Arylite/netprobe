@@ -33,3 +33,5 @@ jobs:
         run: go test -race -count=1 -coverprofile=coverage.out ./...
       - name: Coverage
         run: go tool cover -func=coverage.out | tail -1 | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: install.sh, against a fake release
+        run: docker run --rm -v "$PWD:/repo:ro" alpine:3 sh /repo/deploy/test-install.sh
