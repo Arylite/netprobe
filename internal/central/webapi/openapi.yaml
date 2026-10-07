@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: netprobe UI API
-  version: 0.7.0
+  version: 1.0.0
   description: >
     The API of the netprobe central for a web UI, or any client. Sign in with
     POST /api/v1/login, then send the token as "Authorization: Bearer TOKEN".
