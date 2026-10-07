@@ -80,6 +80,7 @@ paths:
             application/json:
               schema:
                 type: object
+                required: [edges]
                 properties:
                   edges:
                     type: array
@@ -127,6 +128,7 @@ paths:
             application/json:
               schema:
                 type: object
+                required: [checks]
                 properties:
                   checks:
                     type: array
@@ -173,6 +175,7 @@ paths:
             application/json:
               schema:
                 type: object
+                required: [results]
                 properties:
                   results:
                     type: array
@@ -189,6 +192,7 @@ paths:
             application/json:
               schema:
                 type: object
+                required: [users]
                 properties:
                   users:
                     type: array
@@ -251,6 +255,7 @@ components:
   schemas:
     Error:
       type: object
+      required: [error]
       properties:
         error: { type: string }
     LoginRequest:
@@ -261,12 +266,14 @@ components:
         password: { type: string, maxLength: 128 }
     Session:
       type: object
+      required: [token, expires_at, user]
       properties:
         token: { type: string, description: "Send as a bearer token." }
         expires_at: { type: string, format: date-time }
         user: { $ref: "#/components/schemas/User" }
     User:
       type: object
+      required: [username, role]
       properties:
         username: { type: string }
         role: { type: string, enum: [admin, viewer] }
@@ -285,6 +292,7 @@ components:
         new_password: { type: string, minLength: 12, maxLength: 128 }
     Edge:
       type: object
+      required: [id, name, created_at]
       properties:
         id: { type: string }
         name: { type: string }
@@ -293,6 +301,7 @@ components:
         last_seen: { type: string, format: date-time }
     CreatedEdge:
       type: object
+      required: [id, name, token]
       properties:
         id: { type: string }
         name: { type: string }
@@ -307,6 +316,7 @@ components:
         interval_seconds: { type: integer, minimum: 1 }
     Result:
       type: object
+      required: [edge_id, at, ok, rtt_millis]
       properties:
         edge_id: { type: string }
         at: { type: string, format: date-time }
