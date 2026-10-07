@@ -4,8 +4,9 @@ name: Release
 # platform, their checksums and an attestation of where they were built.
 #
 #   lint ---+
-#   test ---+--> build --> package --> publish
-#   vuln ---+
+#   test ---+--> build --+
+#   vuln ---+            +--> package --> publish
+#   web  ----------------+
 
 on:
   push:
@@ -24,12 +25,15 @@ jobs:
   vuln:
     uses: ./.github/workflows/vuln.yml
 
+  web:
+    uses: ./.github/workflows/web.yml
+
   build:
     needs: [lint, test, vuln]
     uses: ./.github/workflows/build.yml
 
   package:
-    needs: build
+    needs: [build, web]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -48,6 +52,10 @@ jobs:
         with:
           pattern: netprobe-*
           path: artifacts
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: webui
+          path: webui
       - name: Archives and checksums
         run: |
           mkdir dist
@@ -62,6 +70,13 @@ jobs:
             esac
             rm -rf "$stage"
           done
+          # The UI is static files: one archive for every platform, to put on any web server.
+          stage="netprobe-ui_${GITHUB_REF_NAME}"
+          mkdir "$stage"
+          cp -r webui/. "$stage"/
+          cp LICENSE "$stage"/
+          tar -czf "dist/$stage.tar.gz" "$stage"
+          rm -rf "$stage"
           (cd dist && sha256sum -- * > SHA256SUMS)
           cat dist/SHA256SUMS
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2

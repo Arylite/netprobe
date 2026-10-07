@@ -4,8 +4,9 @@ name: CI
 # workflows next to this file.
 #
 #   lint ---+
-#   test ---+--> build --> ci (the one check to require)
-#   vuln ---+
+#   test ---+--> build --+
+#   vuln ---+            +--> ci (the one check to require)
+#   web  ----------------+
 
 on:
   push:
@@ -29,6 +30,9 @@ jobs:
   vuln:
     uses: ./.github/workflows/vuln.yml
 
+  web:
+    uses: ./.github/workflows/web.yml
+
   build:
     needs: [lint, test]
     uses: ./.github/workflows/build.yml
@@ -36,7 +40,7 @@ jobs:
   ci:
     name: ci
     if: always()
-    needs: [lint, test, vuln, build]
+    needs: [lint, test, vuln, web, build]
     runs-on: ubuntu-24.04
     timeout-minutes: 1
     steps:
