@@ -1,4 +1,4 @@
-# netprobe: the central, its database, the web UI and a TLS proxy in front.
+# netprobe: the central, its database, the web UI, Grafana and a TLS proxy in front.
 #
 #   docker compose up -d
 #   printf '%s\n' 'a long admin password' | docker compose exec -T central /netprobe-central user add --username admin --role admin
@@ -21,12 +21,13 @@ x-hardened: &hardened
   pids_limit: 256
 
 services:
-  # Makes the database password and the URL the central connects with, once.
+  # Makes the secrets, once: the database password and the URL the central connects
+  # with, the key of its channels, and those of Grafana in a volume of their own.
   init:
     <<: *hardened
     restart: "no"
     image: alpine:3@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6
-    volumes: [secrets:/secrets]
+    volumes: [secrets:/secrets, "grafana-secrets:/grafana-secrets"]
     command:
       - sh
       - -c
@@ -37,6 +38,10 @@ services:
         [ -s /secrets/database_url ] || printf 'postgres://netprobe:%s@db:5432/netprobe?sslmode=disable' "$$(cat /secrets/db_password)" > /secrets/database_url
         [ -s /secrets/secret_key ] || head -c 32 /dev/urandom | base64 > /secrets/secret_key
         chmod 444 /secrets/db_password /secrets/database_url /secrets/secret_key
+        for f in grafana_db_password grafana_admin_password grafana_secret_key; do
+          [ -s /grafana-secrets/$$f ] || head -c 32 /dev/urandom | base64 | tr -d '/+=\n' > /grafana-secrets/$$f
+        done
+        chmod 444 /grafana-secrets/*
     networks: [backend]
 
   db:
@@ -68,6 +73,7 @@ services:
     environment:
       NETPROBE_DATABASE_URL_FILE: /secrets/database_url
       NETPROBE_SECRET_KEY_FILE: /secrets/secret_key
+      NETPROBE_GRAFANA_ROLE: grafana
       # Only the proxy and cloudflared reach the central, and they say who the client is.
       NETPROBE_TRUSTED_PROXIES: 172.28.0.10,172.28.0.11
       NETPROBE_RETENTION: ${NETPROBE_RETENTION:-2160h}
@@ -75,6 +81,34 @@ services:
     volumes: [secrets:/secrets:ro]
     mem_limit: 512m
     networks: [backend, frontend]
+    depends_on:
+      db: {condition: service_healthy}
+      grafana-init: {condition: service_completed_successfully}
+
+  # Makes the database role that Grafana reads with: it can log in, read, and
+  # nothing else. The central then gives it the tables it may read. Safe to repeat.
+  grafana-init:
+    <<: *hardened
+    restart: "no"
+    build: {context: deploy/db}
+    image: ghcr.io/arylite/netprobe-db:${NETPROBE_VERSION:-latest}
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        set -eu
+        export PGHOST=db PGUSER=netprobe PGDATABASE=netprobe PGPASSWORD="$$(cat /secrets/db_password)"
+        psql -v ON_ERROR_STOP=1 -q <<'SQL'
+        \set pw `cat /grafana-secrets/grafana_db_password`
+        SELECT 'CREATE ROLE grafana LOGIN' WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'grafana') \gexec
+        ALTER ROLE grafana WITH LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION CONNECTION LIMIT 10 PASSWORD :'pw';
+        ALTER ROLE grafana SET statement_timeout = '30s';
+        ALTER ROLE grafana SET default_transaction_read_only = on;
+        GRANT CONNECT ON DATABASE netprobe TO grafana;
+        GRANT USAGE ON SCHEMA public TO grafana;
+        SQL
+    volumes: ["secrets:/secrets:ro", "grafana-secrets:/grafana-secrets:ro"]
+    tmpfs: [/tmp]
+    networks: [backend]
     depends_on:
       db: {condition: service_healthy}
 
@@ -94,12 +128,72 @@ services:
     mem_limit: 64m
     networks: [frontend]
 
+  # Dashboards, on a name of their own (grafana.localhost): another origin than the
+  # UI, so that nothing Grafana runs can read what the UI keeps in the browser.
+  # It reads the database through a role that can only read the results. Its
+  # administrator is "admin", and the password is in the grafana-secrets volume:
+  #   docker compose exec grafana cat /grafana-secrets/grafana_admin_password
+  grafana:
+    <<: *hardened
+    image: grafana/grafana:13.2.3-slim@sha256:7c2b05e94eb43e2b88aa814d7a1c9421affc7f3593a951148177f29feaff6017
+    environment:
+      GF_SERVER_DOMAIN: ${NETPROBE_GRAFANA_DOMAIN:-grafana.localhost}
+      GF_SERVER_ROOT_URL: ${NETPROBE_GRAFANA_URL:-https://grafana.localhost}/
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD__FILE: /grafana-secrets/grafana_admin_password
+      GF_SECURITY_SECRET_KEY__FILE: /grafana-secrets/grafana_secret_key
+      GF_SECURITY_COOKIE_SECURE: "true"
+      GF_SECURITY_COOKIE_SAMESITE: lax
+      GF_SECURITY_STRICT_TRANSPORT_SECURITY: "true"
+      GF_SECURITY_CONTENT_SECURITY_POLICY: "true"
+      GF_SECURITY_ALLOW_EMBEDDING: "false"
+      GF_SECURITY_DISABLE_GRAVATAR: "true"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_USERS_ALLOW_ORG_CREATE: "false"
+      GF_USERS_VIEWERS_CAN_EDIT: "false"
+      GF_USERS_DEFAULT_THEME: light
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_PUBLIC_DASHBOARDS_ENABLED: "false"
+      GF_SNAPSHOTS_EXTERNAL_ENABLED: "false"
+      # No traffic to Grafana Labs, and no plugin to install from the screen.
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
+      GF_ANALYTICS_FEEDBACK_LINKS_ENABLED: "false"
+      GF_NEWS_NEWS_FEED_ENABLED: "false"
+      GF_PLUGINS_PLUGIN_ADMIN_ENABLED: "false"
+      # netprobe alerts by itself.
+      GF_UNIFIED_ALERTING_ENABLED: "false"
+      GF_ALERTING_ENABLED: "false"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana-dashboards/netprobe-overview.json
+      GF_DASHBOARDS_MIN_REFRESH_INTERVAL: 10s
+      GF_DATABASE_WAL: "true"
+      GF_LOG_MODE: console
+      GF_LOG_LEVEL: warn
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - grafana-secrets:/grafana-secrets:ro
+      - ./deploy/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./deploy/grafana/dashboards:/var/lib/grafana-dashboards:ro
+    tmpfs: [/tmp]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:3000/api/health"]
+      interval: 30s
+      timeout: 3s
+      start_period: 30s
+    mem_limit: 512m
+    networks: [backend, frontend]
+    depends_on:
+      grafana-init: {condition: service_completed_successfully}
+      central: {condition: service_healthy}
+
   proxy:
     <<: *hardened
     image: caddy:2-alpine@sha256:d8542f48d34a9cf4e4c11a478865229840e87e4c96ea3f439101f31a5d35f75f
     cap_add: [NET_BIND_SERVICE]
     environment:
       NETPROBE_DOMAIN: ${NETPROBE_DOMAIN:-localhost}
+      NETPROBE_GRAFANA_DOMAIN: ${NETPROBE_GRAFANA_DOMAIN:-grafana.localhost}
     ports:
       - "${NETPROBE_BIND:-0.0.0.0}:${NETPROBE_HTTP_PORT:-80}:80"
       - "${NETPROBE_BIND:-0.0.0.0}:${NETPROBE_HTTPS_PORT:-443}:443"
@@ -117,12 +211,13 @@ services:
     networks:
       frontend:
         ipv4_address: 172.28.0.10
-    depends_on: [central, web]
+    depends_on: [central, web, grafana]
 
   # Optional: the UI and the edge API through a Cloudflare Tunnel, which needs no
   # open port. In the Cloudflare dashboard, create a tunnel, give it the public
-  # hostname of NETPROBE_PUBLIC_URL with the service http://proxy:8088, and keep
-  # its token in the file ./cloudflared_token. Then:
+  # hostname of NETPROBE_PUBLIC_URL with the service http://proxy:8088 (and one
+  # for Grafana with http://proxy:8089), and keep its token in the file
+  # ./cloudflared_token. Then:
   #   NETPROBE_BIND=127.0.0.1 docker compose --profile cloudflared up -d
   cloudflared:
     <<: *hardened
@@ -160,5 +255,7 @@ secrets:
 volumes:
   db-data:
   secrets:
+  grafana-data:
+  grafana-secrets:
   caddy-data:
   caddy-config:

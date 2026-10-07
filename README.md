@@ -114,7 +114,7 @@ of its image, which the central does not use and whose Go runtime carries known
 vulnerabilities. Every image runs as a user without privileges, and every base
 is pinned by digest.
 
-`compose.yaml` runs the central, its database, the web UI and a Caddy proxy:
+`compose.yaml` runs the central, its database, the web UI, Grafana and a Caddy proxy:
 
 - Only the proxy publishes ports (80 and 443). It serves the UI at `/`, the UI API
   at `/api/` and the edge API at `/v1/` and `/healthz`, all on one name, so the UI
@@ -126,6 +126,11 @@ is pinned by digest.
 - Every container has a read-only file system, no Linux capability and
   `no-new-privileges`. The central trusts the proxy, and only it, to say who the
   client is.
+- Grafana is at <https://grafana.localhost>, on a name of its own so that nothing it
+  runs shares the origin of the UI. It reads the database through a role that can
+  only read the results, and comes with three dashboards. Its administrator is
+  `admin`; the password is made at the first start:
+  `docker compose exec grafana cat /grafana-secrets/grafana_admin_password`.
 
 Settings go in a `.env` file (see `.env.example`). For a real name, set
 `NETPROBE_DOMAIN` and `NETPROBE_PUBLIC_URL`: the proxy gets a certificate from Let's
@@ -277,7 +282,8 @@ unless `--retention` says how long, for example `--retention 2160h` for 90 days
 is applied each time the central starts.
 
 Grafana reads them with its PostgreSQL data source, with a user of its own that
-can only read what it needs. Never grant `SELECT` on all of `edges` (it holds the
+can only read what it needs. The compose file sets all of this up, with the
+dashboards in `deploy/grafana/dashboards`; this is for a Grafana of your own. Never grant `SELECT` on all of `edges` (it holds the
 hashes of the tokens), on `users` or on `channels` (secrets):
 
 ```sql
