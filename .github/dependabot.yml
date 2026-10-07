@@ -12,6 +12,11 @@ updates:
     schedule: {interval: weekly}
     groups:
       web: {patterns: ["*"]}
+    ignore:
+      # openapi-typescript, which writes the client, needs the JavaScript API of
+      # TypeScript, which version 7 no longer has.
+      - dependency-name: typescript
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: github-actions
     directory: /
