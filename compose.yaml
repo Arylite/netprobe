@@ -38,7 +38,7 @@ services:
         [ -s /secrets/database_url ] || printf 'postgres://netprobe:%s@db:5432/netprobe?sslmode=disable' "$$(cat /secrets/db_password)" > /secrets/database_url
         [ -s /secrets/secret_key ] || head -c 32 /dev/urandom | base64 > /secrets/secret_key
         chmod 444 /secrets/db_password /secrets/database_url /secrets/secret_key
-        for f in grafana_db_password grafana_admin_password grafana_secret_key; do
+        for f in grafana_db_password grafana_admin_password grafana_secret_key renderer_token; do
           [ -s /grafana-secrets/$$f ] || head -c 32 /dev/urandom | base64 | tr -d '/+=\n' > /grafana-secrets/$$f
         done
         chmod 444 /grafana-secrets/*
@@ -170,6 +170,11 @@ services:
       GF_DATABASE_WAL: "true"
       GF_LOG_MODE: console
       GF_LOG_LEVEL: warn
+      # Images of panels and dashboards, made by the renderer below.
+      GF_RENDERING_SERVER_URL: http://renderer:8081/render
+      GF_RENDERING_CALLBACK_URL: http://grafana:3000/
+      GF_RENDERING_RENDERER_TOKEN__FILE: /grafana-secrets/renderer_token
+      GF_RENDERING_CONCURRENT_RENDER_REQUEST_LIMIT: "5"
     volumes:
       - grafana-data:/var/lib/grafana
       - grafana-secrets:/grafana-secrets:ro
@@ -182,10 +187,41 @@ services:
       timeout: 3s
       start_period: 30s
     mem_limit: 512m
-    networks: [backend, frontend]
+    networks: [backend, frontend, render]
     depends_on:
       grafana-init: {condition: service_completed_successfully}
       central: {condition: service_healthy}
+
+  # Makes the images of panels and dashboards, with a browser. It is on a network
+  # shared with Grafana alone, and only Grafana, with the token, may ask it.
+  renderer:
+    <<: *hardened
+    image: grafana/grafana-image-renderer:v5.12.5@sha256:76542ccc4c045e5ff9f80f87b25de6fcc71b31222172de5031a8ceba33772ee1
+    # The token is read from its file into the environment of the process only.
+    entrypoint:
+      - sh
+      - -c
+      - AUTH_TOKEN="$$(cat /grafana-secrets/renderer_token)" exec /usr/bin/grafana-image-renderer server
+    environment:
+      LOG_LEVEL: warn
+      # The browser has no sandbox of its own in a container without privileges;
+      # this container is that sandbox: read-only, no capability, no way out.
+      BROWSER_TIMEZONE: ${NETPROBE_TIMEZONE:-UTC}
+    volumes: [grafana-secrets:/grafana-secrets:ro]
+    tmpfs:
+      - /tmp
+      - /home/nonroot:uid=65532,gid=65532
+    shm_size: 512m
+    pids_limit: 512
+    healthcheck:
+      test: ["CMD", "grafana-image-renderer", "healthcheck"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+    mem_limit: 1g
+    networks: [render]
+    depends_on:
+      init: {condition: service_completed_successfully}
 
   proxy:
     <<: *hardened
@@ -242,6 +278,9 @@ services:
 networks:
   # The database can talk to the central and to nothing else.
   backend:
+    internal: true
+  # Grafana and its renderer, and nothing else, with no way out.
+  render:
     internal: true
   frontend:
     ipam:
