@@ -21,6 +21,13 @@ commands:
                            assign a check to every edge
   check list               list the checks
   check remove --id ID     stop assigning a check (its results are kept)
+  channel add --name NAME --url URL [--secret-stdin]
+                           add a webhook told when an incident opens or resolves;
+                           the secret that signs it is read from stdin
+  channel list             list the channels
+  channel remove --name NAME
+  channel test --name NAME send a test notification
+  incident list [--open]   list the incidents, the newest first
   user add --username NAME --role admin|viewer
                            create an account; the password is read from stdin
   user list                list the accounts
@@ -61,6 +68,10 @@ func dispatch(args []string, out io.Writer) error {
 		return edgeCommand(args[1:], out)
 	case "check":
 		return checkCommand(args[1:], out)
+	case "channel":
+		return channelCommand(args[1:], out)
+	case "incident":
+		return incidentCommand(args[1:], out)
 	case "user":
 		return userCommand(args[1:], out)
 	case "doctor":
