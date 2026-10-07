@@ -41,7 +41,7 @@ command line, where every user of the machine can see it.
 ### With the script
 
 ```sh
-curl -fsSL https://github.com/Arylite/netprobe/releases/download/v1.0.0-rc.2/install.sh   | sudo sh -s -- edge --central https://netprobe.example.com
+curl -fsSL https://github.com/Arylite/netprobe/releases/download/v1.0.0/install.sh   | sudo sh -s -- edge --central https://netprobe.example.com
 ```
 
 It asks for the token (typed, not shown), installs the binary and the systemd unit, starts it and

@@ -20,7 +20,7 @@ managed from a web UI.
 ![Docker](https://img.shields.io/badge/Docker-2496ED?logo=docker&logoColor=white)
 ![Cloudflare](https://img.shields.io/badge/Cloudflare_Tunnel-F38020?logo=cloudflare&logoColor=white)
 
-Status: 1.0.0-rc.1. Edges poll the central, run their checks and report. The
+Status: 1.0.0. Edges poll the central, run their checks and report. The
 central opens an incident when a check keeps failing or an edge goes quiet, and
 tells webhooks. A web UI manages edges, checks, channels and users; Grafana
 reads the results. Everything lives in PostgreSQL with TimescaleDB, and both
@@ -66,8 +66,8 @@ Or in one command on a Linux server, for the central or for an edge (see
 [Installing with the script](docs/install.md), which says how to read it first):
 
 ```sh
-curl -fsSL https://github.com/Arylite/netprobe/releases/download/v1.0.0-rc.2/install.sh | sudo sh -s -- central --domain netprobe.example.com
-curl -fsSL https://github.com/Arylite/netprobe/releases/download/v1.0.0-rc.2/install.sh | sudo sh -s -- edge --central https://netprobe.example.com
+curl -fsSL https://github.com/Arylite/netprobe/releases/download/v1.0.0/install.sh | sudo sh -s -- central --domain netprobe.example.com
+curl -fsSL https://github.com/Arylite/netprobe/releases/download/v1.0.0/install.sh | sudo sh -s -- edge --central https://netprobe.example.com
 ```
 
 From the source:

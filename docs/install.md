@@ -1,21 +1,21 @@
 # Installing with the script
 
 `install.sh` sets up an edge on a machine, or the central with Docker, in one command. It
-needs a release that carries it, `v1.0.0-rc.2` or later: it is one of the files of each
+needs a release that carries it, `v1.0.0` or later: it is one of the files of each
 release, next to the binaries and `SHA256SUMS`.
 
 ```sh
 # an edge, on the machine to measure from
-curl -fsSL https://github.com/Arylite/netprobe/releases/download/v1.0.0-rc.2/install.sh \
+curl -fsSL https://github.com/Arylite/netprobe/releases/download/v1.0.0/install.sh \
   | sudo sh -s -- edge --central https://netprobe.example.com
 
 # the central, with its database, the web UI and Grafana
-curl -fsSL https://github.com/Arylite/netprobe/releases/download/v1.0.0-rc.2/install.sh \
+curl -fsSL https://github.com/Arylite/netprobe/releases/download/v1.0.0/install.sh \
   | sudo sh -s -- central --domain netprobe.example.com
 ```
 
-Once a stable release exists, `https://github.com/Arylite/netprobe/releases/latest/download/install.sh`
-always points at the newest one.
+`https://github.com/Arylite/netprobe/releases/latest/download/install.sh` always points at the
+newest stable release.
 
 ## Is it safe to pipe it into a shell?
 
@@ -25,7 +25,7 @@ does to make that reasonable:
 - **Read it first.** It is a plain text file. Download it, read it, then run it:
 
   ```sh
-  curl -fsSLo install.sh https://github.com/Arylite/netprobe/releases/download/v1.0.0-rc.2/install.sh
+  curl -fsSLo install.sh https://github.com/Arylite/netprobe/releases/download/v1.0.0/install.sh
   less install.sh
   sudo sh install.sh edge --central https://netprobe.example.com
   ```
