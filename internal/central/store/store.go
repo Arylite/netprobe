@@ -53,11 +53,8 @@ func Open(ctx context.Context, url string, opts ...Option) (*Store, error) {
 	return s, nil
 }
 
-// updateTimescale brings the extension to the version the server has, which a
-// new image brings without touching the database. It must be the first command
-// of a session, so it has a connection of its own. It is best effort: a database
-// without the extension yet, or a user who may not update it, is left to the
-// migrations and to the diagnostics.
+// updateTimescale brings the extension to the version of the server, as a new
+// image needs. It must be the first command of a session, and is best effort.
 func updateTimescale(ctx context.Context, url string) {
 	conn, err := pgx.Connect(ctx, url)
 	if err != nil {

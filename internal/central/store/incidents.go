@@ -131,11 +131,9 @@ func (s *Store) incidents(ctx context.Context, clause string, args ...any) ([]In
 	return out, rows.Err()
 }
 
-// PendingNotifications returns what the channels were not told yet, oldest
-// first. A channel only hears of incidents that started after it was created,
-// and nothing older than since is sent: an outage of the webhook must not turn
-// into a burst of stale news when it comes back. It hears that an incident is
-// resolved only if it heard that it opened.
+// PendingNotifications returns the events the channels were not told of, oldest
+// first: only for incidents started after the channel was added, none older than
+// since, and a resolution only once the opening was told.
 func (s *Store) PendingNotifications(ctx context.Context, since time.Time) ([]Notification, error) {
 	rows, err := s.pool.Query(ctx,
 		`SELECT `+incidentColumns+`, ev.event, c.name, c.url, c.secret, c.created_at

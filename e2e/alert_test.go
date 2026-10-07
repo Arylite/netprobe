@@ -28,10 +28,8 @@ type delivery struct {
 	body    []byte
 }
 
-// TestAServiceThatGoesDownAndComesBackIsToldToTheWebhook follows an outage
-// from end to end: a real edge measures a real listener, the listener goes
-// away, the central opens an incident and posts it, signed, to a webhook, and
-// posts the recovery when the listener is back.
+// TestAServiceThatGoesDownAndComesBackIsToldToTheWebhook follows an outage from
+// a real edge to a signed webhook, and back.
 func TestAServiceThatGoesDownAndComesBackIsToldToTheWebhook(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {

@@ -114,11 +114,8 @@ func NewWebhook(policy probe.Policy) *Webhook {
 	}}
 }
 
-// Send posts the payload. When the channel has a secret, the body is signed:
-// X-Netprobe-Signature is "sha256=" and the hex HMAC-SHA256 of the timestamp,
-// a dot and the body, with the time in X-Netprobe-Timestamp, so a receiver can
-// refuse a copy replayed later. An error never contains the address, which may
-// hold a secret of its own.
+// Send posts the payload, signed when the channel has a secret (see the README).
+// An error never holds the address, which may hold a secret of its own.
 func (w *Webhook) Send(ctx context.Context, ch store.Channel, p Payload) error {
 	body, err := json.Marshal(p)
 	if err != nil {

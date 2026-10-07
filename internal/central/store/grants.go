@@ -10,10 +10,8 @@ import (
 
 var rolePattern = regexp.MustCompile(`^[a-z_][a-z0-9_]{0,62}$`)
 
-// GrantReadOnly lets a database role read what a dashboard needs: the results,
-// the checks and the incidents, and of the edges their name and dates, never the
-// hash of their token. Nothing else is granted: not the accounts, not the
-// channels. It is safe to repeat.
+// GrantReadOnly lets a database role read the results, checks and incidents, and
+// the name and dates of the edges, never the hash of their token. It is safe to repeat.
 func (s *Store) GrantReadOnly(ctx context.Context, role string) error {
 	if !rolePattern.MatchString(role) {
 		return fmt.Errorf("role %q: use lowercase letters, digits and underscores", role)

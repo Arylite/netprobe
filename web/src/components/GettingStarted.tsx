@@ -24,11 +24,7 @@ interface Step {
   done: boolean;
 }
 
-/**
- * What to do on a central that has nothing yet, in order: an edge to measure
- * from, a check to measure, and someone to tell. It goes away by itself when all
- * three are done, or when an administrator hides it.
- */
+/** The first three steps of an empty central; it hides when they are done, or on request. */
 export function GettingStarted() {
   const user = useUser();
   const admin = user.role === "admin";

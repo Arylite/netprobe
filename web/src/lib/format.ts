@@ -29,10 +29,7 @@ export function rtt(millis: number): string {
   return millis < 10 ? `${millis.toFixed(1)} ms` : `${Math.round(millis)} ms`;
 }
 
-/**
- * "99.9 %": never rounds up to a figure that is not true, so 99.96 reads 99.9
- * and only a perfect score reads 100.
- */
+/** "99.9 %": rounds down, so 99.96 reads 99.9 and only a perfect score reads 100. */
 export function percent(ratio: number): string {
   const tenths = Math.floor(ratio * 1000 + 1e-9) / 10;
   return `${Number.isInteger(tenths) ? tenths : tenths.toFixed(1)} %`;

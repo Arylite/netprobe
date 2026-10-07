@@ -9,13 +9,9 @@ import (
 	"strings"
 )
 
-// Proxies are the reverse proxies trusted to say who the client is. The zero
-// value trusts none, so the client is the peer of the connection.
-//
-// This matters twice: behind a proxy every request comes from the proxy's own
-// address, so without it the failure limits would lock every user out together,
-// and the logs would name no one. And a header that anyone can send must not be
-// believed, or anyone could pick the address they are counted under.
+// Proxies are the reverse proxies trusted to say who the client is. Behind a
+// proxy every request shares its address, so the failure limits would lock
+// everyone out together. The zero value trusts none.
 type Proxies struct {
 	prefixes []netip.Prefix
 }
@@ -52,11 +48,9 @@ func (p Proxies) trusts(addr netip.Addr) bool {
 	return false
 }
 
-// ClientIP is the address a request is counted and logged under. When the peer
-// is a trusted proxy it is the first address, reading X-Forwarded-For from the
-// right, that is not a trusted proxy itself: what a proxy appends is believed,
-// what came before it from an unknown sender is not. Anything unreadable falls
-// back to the peer.
+// ClientIP is the address a request is counted under: the peer, or when that is
+// a trusted proxy the first address of X-Forwarded-For, from the right, that is
+// not one itself.
 func (p Proxies) ClientIP(r *http.Request) string {
 	peer := PeerHost(r)
 	peerAddr, err := netip.ParseAddr(peer)

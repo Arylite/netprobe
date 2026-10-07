@@ -8,9 +8,8 @@ import (
 )
 
 // DefaultDeny are the ranges an edge never connects to unless told otherwise:
-// loopback, link-local (which holds the metadata service of most clouds),
-// unspecified and multicast, and the addresses at which the other clouds serve
-// theirs. Private ranges are allowed: probing an intranet is the point.
+// loopback, link-local, unspecified, multicast and the metadata services of the
+// clouds. Private ranges are allowed: probing an intranet is the point.
 var DefaultDeny = []string{
 	"127.0.0.0/8", "::1/128",
 	"169.254.0.0/16", "fe80::/10",
@@ -27,10 +26,8 @@ var (
 	sixToFour  = netip.MustParsePrefix("2002::/16")
 )
 
-// embeddedIPv4 returns the IPv4 address that an IPv6 address carries when it
-// is one a gateway translates: NAT64 (a connection to 64:ff9b::a9fe:a9fe
-// reaches 169.254.169.254) and 6to4. A policy that only looked at the IPv6 form
-// would let them through.
+// embeddedIPv4 returns the IPv4 address that NAT64 and 6to4 addresses carry: a
+// connection to 64:ff9b::a9fe:a9fe reaches 169.254.169.254.
 func embeddedIPv4(ip netip.Addr) (netip.Addr, bool) {
 	b := ip.As16()
 	switch {

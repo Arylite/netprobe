@@ -3,10 +3,7 @@ export interface Config {
   apiUrl: string;
 }
 
-/**
- * Reads config.json, which sits next to index.html: the build is the same
- * everywhere, only this file says which central to talk to.
- */
+/** Reads config.json, next to index.html: it says which central to talk to. */
 export async function loadConfig(fetchImpl: typeof fetch = fetch): Promise<Config> {
   let res: Response;
   try {
