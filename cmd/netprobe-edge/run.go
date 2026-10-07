@@ -24,6 +24,9 @@ const (
 type config struct {
 	central   string
 	tokenFile string
+	caFile    string
+	certFile  string
+	keyFile   string
 	deny      string
 	poll      time.Duration
 	report    time.Duration
@@ -49,7 +52,11 @@ func run(cfg config) error {
 	if err != nil {
 		return err
 	}
-	client, err := edge.NewClient(cfg.central, token)
+	tlsConfig, err := edge.TLSConfig(cfg.caFile, cfg.certFile, cfg.keyFile)
+	if err != nil {
+		return err
+	}
+	client, err := edge.NewClient(cfg.central, token, edge.WithTLS(tlsConfig))
 	if err != nil {
 		return err
 	}

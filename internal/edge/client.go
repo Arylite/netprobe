@@ -3,6 +3,7 @@ package edge
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -41,9 +42,25 @@ type Client struct {
 	etag  string
 }
 
+// ClientOption changes how a Client talks to the central.
+type ClientOption func(*Client)
+
+// WithTLS sets the TLS settings of the connection, for a private CA or a client
+// certificate.
+func WithTLS(cfg *tls.Config) ClientOption {
+	return func(c *Client) {
+		if cfg == nil {
+			return
+		}
+		transport := http.DefaultTransport.(*http.Transport).Clone()
+		transport.TLSClientConfig = cfg
+		c.http.Transport = transport
+	}
+}
+
 // NewClient checks the central URL and prepares a client. A token is never
 // sent over plain HTTP unless the central is on this machine.
-func NewClient(central, token string) (*Client, error) {
+func NewClient(central, token string, opts ...ClientOption) (*Client, error) {
 	u, err := url.Parse(central)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
 		return nil, fmt.Errorf("central URL %q: want http(s)://host[:port]", central)
@@ -51,7 +68,11 @@ func NewClient(central, token string) (*Client, error) {
 	if token != "" && u.Scheme == "http" && !isLoopback(u.Hostname()) {
 		return nil, errors.New("refusing to send the token over plain HTTP to a remote central: use https")
 	}
-	return &Client{base: u, token: token, http: &http.Client{Timeout: requestTimeout}}, nil
+	c := &Client{base: u, token: token, http: &http.Client{Timeout: requestTimeout}}
+	for _, opt := range opts {
+		opt(c)
+	}
+	return c, nil
 }
 
 func isLoopback(host string) bool {

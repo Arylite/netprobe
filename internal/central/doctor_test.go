@@ -10,6 +10,7 @@ import (
 	"github.com/Arylite/netprobe/internal/central/store"
 	"github.com/Arylite/netprobe/internal/central/store/storetest"
 	"github.com/Arylite/netprobe/internal/doctor"
+	"github.com/Arylite/netprobe/internal/pkitest"
 )
 
 func diagnose(t *testing.T, cfg DoctorConfig) map[string]doctor.Line {
@@ -77,6 +78,30 @@ func TestDoctorAlertingAndRetention(t *testing.T) {
 	if l := want(t, diagnose(t, cfg), "alerting", doctor.Warn); !strings.Contains(l.Detail, "web on paris") {
 		t.Fatalf("open incident: %q", l.Detail)
 	}
+}
+
+func TestDoctorReadsTheCertificateOfASurfaceThatServesTLS(t *testing.T) {
+	_, url := storetest.OpenURL(t)
+	pki := pkitest.New(t)
+	day := 24 * time.Hour
+	cfg := DoctorConfig{DatabaseURL: url, EdgeListen: "0.0.0.0:8080", APIListen: "127.0.0.1:8081"}
+
+	// TLS served by the central itself is not "open over plain HTTP".
+	cfg.EdgeTLSCert = pki.ServerFor(t, "long", 90*day).CertFile
+	if l := want(t, diagnose(t, cfg), "edge-listen", doctor.OK); !strings.Contains(l.Detail, "TLS 1.3") {
+		t.Fatalf("detail %q", l.Detail)
+	}
+	cfg.EdgeTLSCert = pki.ServerFor(t, "soon", 3*day).CertFile
+	if l := want(t, diagnose(t, cfg), "edge-listen", doctor.Warn); !strings.Contains(l.Detail, "expires in") {
+		t.Fatalf("detail %q", l.Detail)
+	}
+	cfg.Now = func() time.Time { return time.Now().Add(10 * day) }
+	if l := want(t, diagnose(t, cfg), "edge-listen", doctor.Fail); !strings.Contains(l.Detail, "expired") {
+		t.Fatalf("detail %q", l.Detail)
+	}
+
+	cfg.EdgeTLSCert = "/nonexistent.pem"
+	want(t, diagnose(t, cfg), "edge-listen", doctor.Fail)
 }
 
 func TestDoctorNeedsADatabaseURL(t *testing.T) {

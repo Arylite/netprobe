@@ -2,9 +2,12 @@ package central
 
 import (
 	"context"
+	"crypto/x509"
+	"encoding/pem"
 	"fmt"
 	"net"
 	"net/netip"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -22,13 +25,48 @@ type DoctorConfig struct {
 	DatabaseURL string
 	EdgeListen  string
 	APIListen   string
+	// EdgeTLSCert and APITLSCert are the certificate files the surfaces serve,
+	// when they serve TLS themselves.
+	EdgeTLSCert string
+	APITLSCert  string
 	// Now is the clock; nil means time.Now.
 	Now func() time.Time
 }
 
-// checkListen judges how a surface is exposed: loopback is private, anything
-// else is open to a network over plain HTTP.
-func checkListen(addr, what, why string) doctor.Outcome {
+// certWarnDays is how long before it expires a certificate is called out.
+const certWarnDays = 14
+
+// checkCertificate reads a certificate file and says when it expires.
+func checkCertificate(file string, now time.Time) doctor.Outcome {
+	raw, err := os.ReadFile(file)
+	if err != nil {
+		return doctor.Failure("cannot read the certificate: "+err.Error(), "check --edge-tls-cert and --api-tls-cert")
+	}
+	block, _ := pem.Decode(raw)
+	if block == nil {
+		return doctor.Failure(file+" holds no PEM certificate", "")
+	}
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return doctor.Failure("cannot parse the certificate: "+err.Error(), "")
+	}
+	left := cert.NotAfter.Sub(now)
+	switch {
+	case left <= 0:
+		return doctor.Failure("the certificate expired on "+cert.NotAfter.Format("2006-01-02"), "renew it: the central picks up the new file without a restart")
+	case left < certWarnDays*24*time.Hour:
+		return doctor.Warning(fmt.Sprintf("the certificate expires in %d days", int(left.Hours()/24)), "renew it: the central picks up the new file without a restart")
+	}
+	return doctor.Pass("TLS 1.3, certificate valid until " + cert.NotAfter.Format("2006-01-02"))
+}
+
+// checkListen judges how a surface is exposed: loopback is private, a surface
+// that serves TLS itself is protected, anything else is open to a network over
+// plain HTTP.
+func checkListen(addr, what, why, certFile string, now time.Time) doctor.Outcome {
+	if certFile != "" {
+		return checkCertificate(certFile, now)
+	}
 	host, _, err := net.SplitHostPort(addr)
 	if err != nil {
 		return doctor.Failure(fmt.Sprintf("listen address %q: %v", addr, err), "use host:port, for example 127.0.0.1:8080")
@@ -189,10 +227,10 @@ func DoctorSteps(cfg DoctorConfig) ([]doctor.Step, func()) {
 			return doctor.Pass("results are dropped after " + kept.String())
 		}},
 		{Name: "edge-listen", Run: func(context.Context) doctor.Outcome {
-			return checkListen(cfg.EdgeListen, "the edge API", "edges refuse to send their token over plain HTTP to a remote host")
+			return checkListen(cfg.EdgeListen, "the edge API", "edges refuse to send their token over plain HTTP to a remote host", cfg.EdgeTLSCert, now())
 		}},
 		{Name: "api-listen", Run: func(context.Context) doctor.Outcome {
-			return checkListen(cfg.APIListen, "the UI API", "browsers and the UI send passwords and tokens to it")
+			return checkListen(cfg.APIListen, "the UI API", "browsers and the UI send passwords and tokens to it", cfg.APITLSCert, now())
 		}},
 	}
 	return steps, func() {

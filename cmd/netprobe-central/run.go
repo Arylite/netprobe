@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -36,9 +37,12 @@ type serveConfig struct {
 
 	trustedProxies []string
 	webhookDeny    string
-	alertFailures  int
-	edgeSilence    time.Duration
-	alertInterval  time.Duration
+
+	edgeTLSCert, edgeTLSKey, edgeClientCA string
+	apiTLSCert, apiTLSKey                 string
+	alertFailures                         int
+	edgeSilence                           time.Duration
+	alertInterval                         time.Duration
 	// retention is how long results are kept; zero keeps them for ever.
 	retention time.Duration
 }
@@ -48,6 +52,7 @@ type surface struct {
 	name string
 	addr string
 	srv  *http.Server
+	tls  *tls.Config
 }
 
 func run(cfg serveConfig) error {
@@ -92,13 +97,21 @@ func run(cfg serveConfig) error {
 	if err != nil {
 		return err
 	}
-	ui, err := webapi.New(log, st, webapi.Config{AllowedOrigins: cfg.corsOrigins, SessionTTL: cfg.sessionTTL, TrustedProxies: proxies, Policy: &policy})
+	edgeTLS, err := serverTLS(cfg.edgeTLSCert, cfg.edgeTLSKey, cfg.edgeClientCA, log)
+	if err != nil {
+		return fmt.Errorf("edge API: %w", err)
+	}
+	apiTLS, err := serverTLS(cfg.apiTLSCert, cfg.apiTLSKey, "", log)
+	if err != nil {
+		return fmt.Errorf("UI API: %w", err)
+	}
+	ui, err := webapi.New(log, st, webapi.Config{AllowedOrigins: cfg.corsOrigins, SessionTTL: cfg.sessionTTL, TrustedProxies: proxies, Policy: &policy, HSTS: apiTLS != nil})
 	if err != nil {
 		return err
 	}
 	surfaces := []surface{
-		{name: "edge API", addr: cfg.edgeListen, srv: newServer(central.New(log, st, central.WithProxies(proxies)).Handler())},
-		{name: "UI API", addr: cfg.apiListen, srv: newServer(ui.Handler())},
+		{name: "edge API", addr: cfg.edgeListen, srv: newServer(log, central.New(log, st, central.WithProxies(proxies)).Handler()), tls: edgeTLS},
+		{name: "UI API", addr: cfg.apiListen, srv: newServer(log, ui.Handler()), tls: apiTLS},
 	}
 
 	listeners := make([]net.Listener, 0, len(surfaces))
@@ -112,8 +125,11 @@ func run(cfg serveConfig) error {
 		if err != nil {
 			return fmt.Errorf("%s: %w", s.name, err)
 		}
+		if s.tls != nil {
+			ln = tls.NewListener(ln, s.tls)
+		}
 		listeners = append(listeners, ln)
-		log.Info("listening", "surface", s.name, "addr", ln.Addr().String(), "version", version.Version)
+		log.Info("listening", "surface", s.name, "addr", s.addr, "tls", s.tls != nil, "version", version.Version)
 	}
 
 	errc := make(chan error, len(surfaces))
@@ -147,9 +163,11 @@ func run(cfg serveConfig) error {
 	return errors.Join(errs...)
 }
 
-func newServer(h http.Handler) *http.Server {
+func newServer(log *slog.Logger, h http.Handler) *http.Server {
 	return &http.Server{
 		Handler:           h,
+		MaxHeaderBytes:    64 << 10,
+		ErrorLog:          slog.NewLogLogger(log.Handler(), slog.LevelDebug),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      30 * time.Second,
@@ -173,8 +191,11 @@ func warnAboutSetup(ctx context.Context, log *slog.Logger, st *store.Store, cfg 
 	} else {
 		log.Info("results are kept for ever: set --retention to drop the old ones")
 	}
-	for _, s := range []struct{ name, addr string }{{"edge API", cfg.edgeListen}, {"UI API", cfg.apiListen}} {
-		if !isLoopback(s.addr) {
+	for _, s := range []struct {
+		name, addr string
+		tls        bool
+	}{{"edge API", cfg.edgeListen, cfg.edgeTLSCert != ""}, {"UI API", cfg.apiListen, cfg.apiTLSCert != ""}} {
+		if !s.tls && !isLoopback(s.addr) {
 			log.Warn("open to the network over plain HTTP: put a TLS proxy in front, tokens and passwords travel in clear otherwise", "surface", s.name, "addr", s.addr)
 		}
 	}

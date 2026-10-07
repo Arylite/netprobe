@@ -27,7 +27,8 @@ const (
 type DoctorConfig struct {
 	Central string
 	Token   string
-	// TLS replaces the system trust store; tests use it, nil is the norm.
+	// TLS holds the private CA and the client certificate; nil means the system
+	// trust store and no client certificate.
 	TLS *tls.Config
 }
 
@@ -48,12 +49,9 @@ func DoctorSteps(cfg DoctorConfig) []doctor.Step {
 			if cfg.Token == "" {
 				return doctor.Failure("no token", "set NETPROBE_TOKEN or --token-file with the token printed by 'netprobe-central edge add'")
 			}
-			c, err := NewClient(cfg.Central, cfg.Token)
+			c, err := NewClient(cfg.Central, cfg.Token, WithTLS(cfg.TLS))
 			if err != nil {
 				return doctor.Failure(err.Error(), "--central takes http(s)://host[:port]; a token only travels over https, or to this machine")
-			}
-			if cfg.TLS != nil {
-				c.http.Transport = &http.Transport{TLSClientConfig: cfg.TLS}
 			}
 			client = c
 			host = c.base.Hostname()

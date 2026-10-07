@@ -276,3 +276,23 @@ func TestADatabaseFailureIsA503NotA401(t *testing.T) {
 		t.Fatalf("login: status %d, want 503", res.StatusCode)
 	}
 }
+
+func TestAnswersCarryTheSecurityHeaders(t *testing.T) {
+	for _, hsts := range []bool{false, true} {
+		f := newFixture(t, Config{HSTS: hsts})
+		res, _ := f.do(t, http.MethodGet, "/api/v1/me", "", nil, nil) // even a refusal
+		for header, want := range map[string]string{
+			"X-Content-Type-Options":  "nosniff",
+			"Cache-Control":           "no-store",
+			"Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+			"Referrer-Policy":         "no-referrer",
+		} {
+			if got := res.Header.Get(header); got != want {
+				t.Errorf("%s = %q, want %q", header, got, want)
+			}
+		}
+		if got := res.Header.Get("Strict-Transport-Security"); (got != "") != hsts {
+			t.Errorf("HSTS %v: header %q", hsts, got)
+		}
+	}
+}

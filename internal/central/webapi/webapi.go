@@ -30,6 +30,8 @@ type Config struct {
 	// Sender delivers the test notifications of a channel; nil posts to its
 	// webhook.
 	Sender alert.Sender
+	// HSTS tells browsers to use HTTPS only; set it when the API serves TLS.
+	HSTS bool
 	// Policy is where a test notification may not connect; nil means the
 	// default ranges, a pointer to the zero value nowhere.
 	Policy *probe.Policy
@@ -48,6 +50,7 @@ type Server struct {
 	ttl     time.Duration
 	sender  alert.Sender
 	proxies auth.Proxies
+	hsts    bool
 
 	byIP     *auth.Limiter
 	byUserIP *auth.Limiter
@@ -82,6 +85,7 @@ func New(log *slog.Logger, st *store.Store, cfg Config) (*Server, error) {
 		ttl:      ttl,
 		sender:   sender,
 		proxies:  cfg.TrustedProxies,
+		hsts:     cfg.HSTS,
 		byIP:     auth.NewLimiter(maxByIP, failureWindow),
 		byUserIP: auth.NewLimiter(maxByUserIP, failureWindow),
 	}, nil
@@ -122,12 +126,18 @@ func (s *Server) Handler() http.Handler {
 	return s.secure(s.cors(mux))
 }
 
-// secure marks every answer as data that must neither be sniffed nor cached.
+// secure marks every answer as data: not to be sniffed, cached, framed or
+// rendered.
 func (s *Server) secure(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h := w.Header()
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("Cache-Control", "no-store")
+		h.Set("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'")
+		h.Set("Referrer-Policy", "no-referrer")
+		if s.hsts {
+			h.Set("Strict-Transport-Security", "max-age=31536000")
+		}
 		next.ServeHTTP(w, r)
 	})
 }
