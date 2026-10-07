@@ -21,12 +21,16 @@ func doctorCommand(args []string, out io.Writer) error {
 	apiListen := fs.String("api-listen", cli.Getenv("NETPROBE_API_LISTEN", "127.0.0.1:8081"), "address of the UI API (NETPROBE_API_LISTEN)")
 	edgeCert := fs.String("edge-tls-cert", cli.Getenv("NETPROBE_EDGE_TLS_CERT", ""), "certificate file of the edge API (NETPROBE_EDGE_TLS_CERT)")
 	apiCert := fs.String("api-tls-cert", cli.Getenv("NETPROBE_API_TLS_CERT", ""), "certificate file of the UI API (NETPROBE_API_TLS_CERT)")
-	databaseURL := databaseFlag(fs)
+	databaseURLFlag := databaseFlag(fs)
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 
-	steps, release := central.DoctorSteps(central.DoctorConfig{DatabaseURL: *databaseURL, EdgeListen: *edgeListen, APIListen: *apiListen, EdgeTLSCert: *edgeCert, APITLSCert: *apiCert})
+	url, err := resolveDatabaseURL(*databaseURLFlag)
+	if err != nil {
+		return err
+	}
+	steps, release := central.DoctorSteps(central.DoctorConfig{DatabaseURL: url, EdgeListen: *edgeListen, APIListen: *apiListen, EdgeTLSCert: *edgeCert, APITLSCert: *apiCert})
 	defer release()
 	lines := doctor.Run(context.Background(), steps)
 	doctor.Print(out, lines)

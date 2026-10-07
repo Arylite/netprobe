@@ -35,6 +35,7 @@ commands:
                            change a password (read from stdin)
   user delete --username NAME
   doctor                   check the setup and say what is wrong
+  healthcheck              exit 0 when both surfaces accept connections (containers)
   version                  print the version
 
 Every command takes -h for its flags.
@@ -76,6 +77,8 @@ func dispatch(args []string, out io.Writer) error {
 		return userCommand(args[1:], out)
 	case "doctor":
 		return doctorCommand(args[1:], out)
+	case "healthcheck":
+		return healthcheckCommand(args[1:], out)
 	case "version", "--version":
 		fmt.Fprintln(out, "netprobe-central", version.String())
 		return nil
