@@ -57,6 +57,7 @@ central options:
   --domain NAME       the name of the UI (default localhost)
   --grafana-domain N  the name of Grafana (default grafana.<domain>)
   --tunnel FILE       publish through a Cloudflare Tunnel, with its token in FILE
+                      (or - for NETPROBE_TUNNEL_TOKEN, or a prompt); no port is opened
 
 any command:
   --version X.Y.Z     the release to install (default: the latest, or NETPROBE_VERSION)
@@ -64,6 +65,12 @@ any command:
 Other settings: NETPROBE_BASE_URL (a mirror of the releases), NETPROBE_PREFIX,
 NETPROBE_YES=1 (never ask).
 EOF
+}
+
+# set_env FILE KEY VALUE: sets KEY in an env file, keeping the rest.
+set_env() {
+  awk -v k="$2" -v v="$3" 'BEGIN { FS = OFS = "=" } $1 == k { print k "=" v; found = 1; next } { print } END { if (!found) print k "=" v }' "$1" >"$1.new"
+  mv "$1.new" "$1"
 }
 
 # have_tty: there is a terminal to ask at, even when stdin is the script.
@@ -365,43 +372,56 @@ cmd_central() {
   tar -xzf "$TMP/netprobe-deploy_${TAG}.tar.gz" -C "$CENTRAL_DIR" --strip-components=1
 
   first=0
-  if [ ! -f "$CENTRAL_DIR/.env" ]; then
-    first=1
-    ask DOMAIN "Name of the UI" "localhost"
+  [ -f "$CENTRAL_DIR/.env" ] || first=1
+  env_file="$CENTRAL_DIR/.env"
+  touch "$env_file"
+  set_env "$env_file" NETPROBE_VERSION "$VERSION"
+
+  if [ "$first" = 1 ]; then
+    if [ -n "$TUNNEL_FILE" ]; then
+      ask DOMAIN "Public name of the UI, as in the tunnel" ""
+      [ -n "$DOMAIN" ] || die "a tunnel needs the public names: --domain netprobe.example.com"
+    else
+      ask DOMAIN "Name of the UI" "localhost"
+    fi
     valid_name "$DOMAIN"
     if [ -z "$GRAFANA_DOMAIN" ]; then GRAFANA_DOMAIN="grafana.$DOMAIN"; fi
     valid_name "$GRAFANA_DOMAIN"
-    {
-      printf 'NETPROBE_VERSION=%s\n' "$VERSION"
-      printf 'NETPROBE_DOMAIN=%s\n' "$DOMAIN"
-      printf 'NETPROBE_PUBLIC_URL=https://%s\n' "$DOMAIN"
-      printf 'NETPROBE_GRAFANA_DOMAIN=%s\n' "$GRAFANA_DOMAIN"
-      printf 'NETPROBE_GRAFANA_URL=https://%s\n' "$GRAFANA_DOMAIN"
-    } >"$CENTRAL_DIR/.env"
-  else
-    # An upgrade: the settings stay, the version moves.
-    sed "s/^NETPROBE_VERSION=.*/NETPROBE_VERSION=$VERSION/" "$CENTRAL_DIR/.env" >"$CENTRAL_DIR/.env.new"
-    grep -q '^NETPROBE_VERSION=' "$CENTRAL_DIR/.env.new" || printf 'NETPROBE_VERSION=%s\n' "$VERSION" >>"$CENTRAL_DIR/.env.new"
-    mv "$CENTRAL_DIR/.env.new" "$CENTRAL_DIR/.env"
+    # With a tunnel Cloudflare holds the certificates: the proxy has no name to ask for one.
+    if [ -z "$TUNNEL_FILE" ]; then
+      set_env "$env_file" NETPROBE_DOMAIN "$DOMAIN"
+      set_env "$env_file" NETPROBE_GRAFANA_DOMAIN "$GRAFANA_DOMAIN"
+    fi
+    set_env "$env_file" NETPROBE_PUBLIC_URL "https://$DOMAIN"
+    set_env "$env_file" NETPROBE_GRAFANA_URL "https://$GRAFANA_DOMAIN"
   fi
 
-  profile=""
   if [ -n "$TUNNEL_FILE" ]; then
-    [ -r "$TUNNEL_FILE" ] || die "cannot read $TUNNEL_FILE"
+    if [ "$TUNNEL_FILE" != "-" ]; then
+      [ -r "$TUNNEL_FILE" ] || die "cannot read $TUNNEL_FILE"
+      TUNNEL_VALUE=$(cat "$TUNNEL_FILE")
+    elif [ -n "${NETPROBE_TUNNEL_TOKEN:-}" ]; then
+      TUNNEL_VALUE="$NETPROBE_TUNNEL_TOKEN"
+    else
+      TUNNEL_VALUE=$(read_secret "Token of the Cloudflare tunnel: ") || die "give the token in a file (--tunnel FILE) or in NETPROBE_TUNNEL_TOKEN"
+    fi
+    TUNNEL_VALUE=$(printf '%s' "$TUNNEL_VALUE" | tr -d ' \r\n')
+    [ -n "$TUNNEL_VALUE" ] || die "the token of the tunnel is empty"
     (
       umask 077
-      tr -d ' \r\n' <"$TUNNEL_FILE" >"$CENTRAL_DIR/cloudflared_token"
+      printf '%s' "$TUNNEL_VALUE" >"$CENTRAL_DIR/cloudflared_token"
     )
-    grep -q '^NETPROBE_BIND=' "$CENTRAL_DIR/.env" || printf 'NETPROBE_BIND=127.0.0.1\n' >>"$CENTRAL_DIR/.env"
-    profile="--profile cloudflared"
-    say "tunnel: in Cloudflare, point the hostnames at http://proxy:8088 (the UI) and http://proxy:8089 (Grafana)"
+    # The container runs as another user and must read it: the directory keeps the others out.
+    chmod 0444 "$CENTRAL_DIR/cloudflared_token"
+    chmod 0750 "$CENTRAL_DIR"
+    # Kept in .env, so that a later docker compose up keeps the tunnel too.
+    set_env "$env_file" COMPOSE_PROFILES cloudflared
+    set_env "$env_file" NETPROBE_BIND 127.0.0.1
   fi
 
   cd "$CENTRAL_DIR"
-  # shellcheck disable=SC2086
-  docker compose $profile pull --quiet || die "the images of $TAG cannot be pulled: are they published?"
-  # shellcheck disable=SC2086
-  docker compose $profile up -d
+  docker compose pull --quiet || die "the images of $TAG cannot be pulled: are they published?"
+  docker compose up -d
 
   say "waiting for the services to be healthy..."
   tries=0
@@ -426,6 +446,13 @@ cmd_central() {
     say "  Setup code to create the administrator: $code"
   elif [ "$first" = 0 ]; then
     say "  Already set up: sign in."
+  fi
+  if grep -q '^COMPOSE_PROFILES=.*cloudflared' .env; then
+    say ""
+    say "Cloudflare Tunnel: in the tunnel, add two public hostnames (Zero Trust, Networks, Tunnels):"
+    say "  ${url#https://}   ->  HTTP  proxy:8088"
+    say "  ${gurl#https://}  ->  HTTP  proxy:8089"
+    say "No port is open on this machine. Put Cloudflare Access in front of what should not be public."
   fi
   say ""
   say "Back up the volumes db-data, secrets and grafana-secrets before you rely on it."
