@@ -12,3 +12,4 @@ coverage.html
 node_modules/
 .idea/
 .vscode/
+cloudflared_token

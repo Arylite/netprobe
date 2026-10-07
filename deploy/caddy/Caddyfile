@@ -1,15 +1,17 @@
-{$NETPROBE_DOMAIN:localhost} {
+{
+	servers {
+		# Only cloudflared, when it is used, is believed about who the client is.
+		trusted_proxies static 172.28.0.11
+	}
+}
+
+(netprobe) {
 	encode zstd gzip
 
 	header {
 		Strict-Transport-Security "max-age=31536000"
 		-Server
 	}
-
-	# To keep the UI and the UI API on a private network, and leave only the edge
-	# API on the internet, answer the next two blocks to private addresses only:
-	#   @private remote_ip private_ranges
-	#   handle @private { ... }
 
 	# What edges call.
 	@edge path /healthz /v1/*
@@ -31,4 +33,13 @@
 	handle {
 		reverse_proxy web:8080
 	}
+}
+
+{$NETPROBE_DOMAIN:localhost} {
+	import netprobe
+}
+
+# For cloudflared, inside the compose network only: Cloudflare holds the certificate.
+http://:8088 {
+	import netprobe
 }

@@ -8,3 +8,4 @@ web/dist
 coverage.*
 .env
 .env.*
+cloudflared_token
