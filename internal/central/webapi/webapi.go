@@ -9,6 +9,7 @@ import (
 	"github.com/Arylite/netprobe/internal/central/alert"
 	"github.com/Arylite/netprobe/internal/central/auth"
 	"github.com/Arylite/netprobe/internal/central/store"
+	"github.com/Arylite/netprobe/internal/probe"
 )
 
 const (
@@ -29,6 +30,9 @@ type Config struct {
 	// Sender delivers the test notifications of a channel; nil posts to its
 	// webhook.
 	Sender alert.Sender
+	// Policy is where a test notification may not connect; nil means the
+	// default ranges, a pointer to the zero value nowhere.
+	Policy *probe.Policy
 	// TrustedProxies are the reverse proxies trusted to say who the client is.
 	// Without them a failed login is counted against the address of the proxy,
 	// and every user would be locked out together.
@@ -61,7 +65,11 @@ func New(log *slog.Logger, st *store.Store, cfg Config) (*Server, error) {
 	}
 	sender := cfg.Sender
 	if sender == nil {
-		sender = alert.NewWebhook()
+		policy := probe.DefaultPolicy()
+		if cfg.Policy != nil {
+			policy = *cfg.Policy
+		}
+		sender = alert.NewWebhook(policy)
 	}
 	set := make(map[string]bool, len(origins))
 	for _, o := range origins {

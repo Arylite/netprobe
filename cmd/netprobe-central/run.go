@@ -20,6 +20,7 @@ import (
 	"github.com/Arylite/netprobe/internal/central/store"
 	"github.com/Arylite/netprobe/internal/central/webapi"
 	"github.com/Arylite/netprobe/internal/cli"
+	"github.com/Arylite/netprobe/internal/probe"
 	"github.com/Arylite/netprobe/internal/version"
 )
 
@@ -34,6 +35,7 @@ type serveConfig struct {
 	level       string
 
 	trustedProxies []string
+	webhookDeny    string
 	alertFailures  int
 	edgeSilence    time.Duration
 	alertInterval  time.Duration
@@ -73,7 +75,14 @@ func run(cfg serveConfig) error {
 	if err := st.SetRetention(ctx, cfg.retention); err != nil {
 		return err
 	}
-	engine, err := alert.New(log, st, alert.Config{Failures: cfg.alertFailures, Silence: cfg.edgeSilence, Interval: cfg.alertInterval})
+	policy, err := probe.ParseDeny(cfg.webhookDeny)
+	if err != nil {
+		return err
+	}
+	if cfg.webhookDeny == probe.DenyNone {
+		log.Warn("no range is denied to the webhooks: an administrator can make this central connect to any address, cloud metadata services included")
+	}
+	engine, err := alert.New(log, st, alert.Config{Failures: cfg.alertFailures, Silence: cfg.edgeSilence, Interval: cfg.alertInterval, Policy: &policy})
 	if err != nil {
 		return err
 	}
@@ -83,7 +92,7 @@ func run(cfg serveConfig) error {
 	if err != nil {
 		return err
 	}
-	ui, err := webapi.New(log, st, webapi.Config{AllowedOrigins: cfg.corsOrigins, SessionTTL: cfg.sessionTTL, TrustedProxies: proxies})
+	ui, err := webapi.New(log, st, webapi.Config{AllowedOrigins: cfg.corsOrigins, SessionTTL: cfg.sessionTTL, TrustedProxies: proxies, Policy: &policy})
 	if err != nil {
 		return err
 	}

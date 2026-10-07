@@ -10,12 +10,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
 	"time"
 
 	"github.com/Arylite/netprobe/internal/central/store"
+	"github.com/Arylite/netprobe/internal/probe"
 	"github.com/Arylite/netprobe/internal/version"
 )
 
@@ -101,10 +103,13 @@ type Webhook struct {
 	Client *http.Client
 }
 
-// NewWebhook returns a sender with a timeout and no redirects.
-func NewWebhook() *Webhook {
+// NewWebhook returns a sender with a timeout and no redirects. It never
+// connects to an address the policy denies, whatever name led to it.
+func NewWebhook(policy probe.Policy) *Webhook {
+	dialer := &net.Dialer{Timeout: webhookTimeout, Control: policy.Control}
 	return &Webhook{Client: &http.Client{
 		Timeout:       webhookTimeout,
+		Transport:     &http.Transport{DialContext: dialer.DialContext, TLSHandshakeTimeout: webhookTimeout, ResponseHeaderTimeout: webhookTimeout},
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}}
 }

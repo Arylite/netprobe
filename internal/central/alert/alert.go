@@ -9,6 +9,7 @@ import (
 
 	"github.com/Arylite/netprobe/internal/api"
 	"github.com/Arylite/netprobe/internal/central/store"
+	"github.com/Arylite/netprobe/internal/probe"
 )
 
 // Defaults of the settings.
@@ -39,6 +40,9 @@ type Config struct {
 	Interval time.Duration
 	// Sender delivers the notifications; nil posts to the channels' webhooks.
 	Sender Sender
+	// Policy is where those webhooks may not connect; nil means the default
+	// ranges, a pointer to the zero value nowhere.
+	Policy *probe.Policy
 	// Now is the clock; nil means time.Now.
 	Now func() time.Time
 }
@@ -74,7 +78,11 @@ func New(log *slog.Logger, st *store.Store, cfg Config) (*Engine, error) {
 		e.interval = DefaultInterval
 	}
 	if e.sender == nil {
-		e.sender = NewWebhook()
+		policy := probe.DefaultPolicy()
+		if cfg.Policy != nil {
+			policy = *cfg.Policy
+		}
+		e.sender = NewWebhook(policy)
 	}
 	if e.now == nil {
 		e.now = time.Now

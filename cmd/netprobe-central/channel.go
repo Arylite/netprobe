@@ -13,10 +13,12 @@ import (
 
 	"github.com/Arylite/netprobe/internal/central/alert"
 	"github.com/Arylite/netprobe/internal/central/store"
+	"github.com/Arylite/netprobe/internal/cli"
+	"github.com/Arylite/netprobe/internal/probe"
 )
 
-// sender delivers the test notification of 'channel test'; tests replace it.
-var sender alert.Sender = alert.NewWebhook()
+// sender delivers the test of 'channel test'; tests replace it.
+var sender alert.Sender
 
 func channelCommand(args []string, out io.Writer) error {
 	if len(args) == 0 {
@@ -143,11 +145,20 @@ func channelTest(args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("channel test", flag.ContinueOnError)
 	databaseURL := databaseFlag(fs)
 	name := fs.String("name", "", "name of the channel")
+	deny := fs.String("webhook-deny", cli.Getenv("NETPROBE_WEBHOOK_DENY", strings.Join(probe.DefaultDeny, ",")), "ranges the webhook may not connect to, CIDRs separated by commas, or none (NETPROBE_WEBHOOK_DENY)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if *name == "" {
 		return errors.New("--name is required")
+	}
+	policy, err := probe.ParseDeny(*deny)
+	if err != nil {
+		return err
+	}
+	send := sender
+	if send == nil {
+		send = alert.NewWebhook(policy)
 	}
 	st, err := openStore(context.Background(), *databaseURL)
 	if err != nil {
@@ -160,7 +171,7 @@ func channelTest(args []string, out io.Writer) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	if err := alert.SendTest(ctx, sender, ch); err != nil {
+	if err := alert.SendTest(ctx, send, ch); err != nil {
 		return fmt.Errorf("channel %s did not accept the test: %w", *name, err)
 	}
 	fmt.Fprintf(out, "channel %s accepted the test\n", *name)

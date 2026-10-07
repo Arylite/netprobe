@@ -16,6 +16,7 @@ import (
 
 	"github.com/Arylite/netprobe/internal/central/alert"
 	"github.com/Arylite/netprobe/internal/central/store"
+	"github.com/Arylite/netprobe/internal/probe"
 )
 
 func notification(event, resolution string) store.Notification {
@@ -78,7 +79,7 @@ func TestWebhookPostsJSONAndSignsIt(t *testing.T) {
 
 	p := alert.NewPayload(notification(store.EventOpened, ""))
 	ch := store.Channel{Name: "ops", URL: srv.URL + "/hook", Secret: "s3cret"}
-	if err := alert.NewWebhook().Send(context.Background(), ch, p); err != nil {
+	if err := alert.NewWebhook(probe.Policy{}).Send(context.Background(), ch, p); err != nil {
 		t.Fatal(err)
 	}
 	r := <-received
@@ -107,7 +108,7 @@ func TestWebhookWithoutSecretIsNotSigned(t *testing.T) {
 	var header http.Header
 	srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) { header = r.Header.Clone() }))
 	defer srv.Close()
-	if err := alert.NewWebhook().Send(context.Background(), store.Channel{URL: srv.URL}, alert.Payload{Event: alert.EventTest}); err != nil {
+	if err := alert.NewWebhook(probe.Policy{}).Send(context.Background(), store.Channel{URL: srv.URL}, alert.Payload{Event: alert.EventTest}); err != nil {
 		t.Fatal(err)
 	}
 	if header.Get("X-Netprobe-Signature") != "" || header.Get("X-Netprobe-Timestamp") != "" {
@@ -133,7 +134,7 @@ func TestWebhookFailures(t *testing.T) {
 	}))
 	defer srv.Close()
 	send := func(ctx context.Context, path string) error {
-		return alert.NewWebhook().Send(ctx, store.Channel{URL: srv.URL + path + "?token=SECRET"}, alert.Payload{Event: alert.EventTest})
+		return alert.NewWebhook(probe.Policy{}).Send(ctx, store.Channel{URL: srv.URL + path + "?token=SECRET"}, alert.Payload{Event: alert.EventTest})
 	}
 
 	if err := send(context.Background(), "/fail"); err == nil || !strings.Contains(err.Error(), "500") {
@@ -155,7 +156,25 @@ func TestWebhookFailures(t *testing.T) {
 			t.Fatalf("the error leaks the address or is missing: %v", e)
 		}
 	}
-	if err := alert.NewWebhook().Send(context.Background(), store.Channel{URL: "http://bad host/"}, alert.Payload{}); err == nil || strings.Contains(err.Error(), "bad host") {
+	if err := alert.NewWebhook(probe.Policy{}).Send(context.Background(), store.Channel{URL: "http://bad host/"}, alert.Payload{}); err == nil || strings.Contains(err.Error(), "bad host") {
 		t.Fatalf("an unusable address: %v", err)
+	}
+}
+
+func TestWebhookDoesNotConnectToDeniedAddresses(t *testing.T) {
+	var reached bool
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { reached = true }))
+	defer srv.Close()
+
+	// The server listens on loopback, which the default policy denies.
+	err := alert.NewWebhook(probe.DefaultPolicy()).Send(context.Background(), store.Channel{URL: srv.URL}, alert.Payload{Event: alert.EventTest})
+	if err == nil || !strings.Contains(err.Error(), "denied by the policy") || reached {
+		t.Fatalf("a loopback webhook was reached (%v): %v", reached, err)
+	}
+	for _, addr := range []string{"http://169.254.169.254/latest/meta-data/", "http://[64:ff9b::a9fe:a9fe]/"} {
+		err := alert.NewWebhook(probe.DefaultPolicy()).Send(context.Background(), store.Channel{URL: addr}, alert.Payload{Event: alert.EventTest})
+		if err == nil || !strings.Contains(err.Error(), "denied by the policy") {
+			t.Errorf("%s: %v", addr, err)
+		}
 	}
 }

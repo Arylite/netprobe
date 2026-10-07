@@ -79,7 +79,7 @@ func TestAServiceThatGoesDownAndComesBackIsToldToTheWebhook(t *testing.T) {
 		ReportInterval: 50 * time.Millisecond,
 		Log:            quiet,
 	}
-	engine, err := alert.New(quiet, st, alert.Config{Failures: 3, Silence: time.Hour, Interval: 100 * time.Millisecond})
+	engine, err := alert.New(quiet, st, alert.Config{Failures: 3, Silence: time.Hour, Interval: 100 * time.Millisecond, Policy: &probe.Policy{}})
 	if err != nil {
 		t.Fatal(err)
 	}

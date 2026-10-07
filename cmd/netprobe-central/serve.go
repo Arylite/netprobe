@@ -8,6 +8,7 @@ import (
 	"github.com/Arylite/netprobe/internal/central/alert"
 	"github.com/Arylite/netprobe/internal/central/store"
 	"github.com/Arylite/netprobe/internal/cli"
+	"github.com/Arylite/netprobe/internal/probe"
 )
 
 const defaultSessionTTL = 12 * time.Hour
@@ -41,6 +42,7 @@ func serve(args []string) error {
 	fs.StringVar(&origins, "cors-origins", cli.Getenv("NETPROBE_CORS_ORIGINS", ""), "web origins allowed to call the UI API from a browser, scheme://host[:port] separated by commas; none by default (NETPROBE_CORS_ORIGINS)")
 	fs.DurationVar(&cfg.sessionTTL, "session-ttl", ttlDefault, "how long a UI login lasts (NETPROBE_SESSION_TTL)")
 	fs.StringVar(&proxies, "trusted-proxies", cli.Getenv("NETPROBE_TRUSTED_PROXIES", ""), "reverse proxies trusted to say who the client is, addresses or CIDR ranges separated by commas; none by default (NETPROBE_TRUSTED_PROXIES)")
+	fs.StringVar(&cfg.webhookDeny, "webhook-deny", cli.Getenv("NETPROBE_WEBHOOK_DENY", strings.Join(probe.DefaultDeny, ",")), "ranges the webhooks may not connect to, CIDRs separated by commas, or none (NETPROBE_WEBHOOK_DENY)")
 	fs.IntVar(&cfg.alertFailures, "alert-failures", failuresDefault, "failures in a row that open an incident for a check on an edge (NETPROBE_ALERT_FAILURES)")
 	fs.DurationVar(&cfg.edgeSilence, "edge-silence", silenceDefault, "how long an edge may go without a result before it is reported (NETPROBE_EDGE_SILENCE)")
 	fs.DurationVar(&cfg.alertInterval, "alert-interval", alertIntervalDefault, "how often results are evaluated and notifications sent (NETPROBE_ALERT_INTERVAL)")
