@@ -7,6 +7,7 @@ name: CI
 #   test ---+--> build --+
 #   vuln ---+            +--> ci (the one check to require)
 #   web  ----------------+
+#   images ---------------+
 
 on:
   push:
@@ -33,6 +34,9 @@ jobs:
   web:
     uses: ./.github/workflows/web.yml
 
+  images:
+    uses: ./.github/workflows/images.yml
+
   build:
     needs: [lint, test]
     uses: ./.github/workflows/build.yml
@@ -40,7 +44,7 @@ jobs:
   ci:
     name: ci
     if: always()
-    needs: [lint, test, vuln, web, build]
+    needs: [lint, test, vuln, web, images, build]
     runs-on: ubuntu-24.04
     timeout-minutes: 1
     steps:

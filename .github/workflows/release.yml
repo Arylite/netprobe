@@ -5,8 +5,9 @@ name: Release
 #
 #   lint ---+
 #   test ---+--> build --+
-#   vuln ---+            +--> package --> publish
-#   web  ----------------+
+#   vuln ---+            +--> package --+--> publish
+#   web  ----------------+              |
+#   images (lint, test, vuln first) ----+
 
 on:
   push:
@@ -27,6 +28,17 @@ jobs:
 
   web:
     uses: ./.github/workflows/web.yml
+
+  images:
+    needs: [lint, test, vuln]
+    uses: ./.github/workflows/images.yml
+    with:
+      push: true
+    permissions:
+      contents: read
+      packages: write # to publish the images
+      id-token: write # to sign their attestation
+      attestations: write
 
   build:
     needs: [lint, test, vuln]
@@ -90,7 +102,7 @@ jobs:
           retention-days: 7
 
   publish:
-    needs: package
+    needs: [package, images]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:

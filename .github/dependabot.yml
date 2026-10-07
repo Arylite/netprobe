@@ -1,0 +1,29 @@
+version: 2
+
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    schedule: {interval: weekly}
+    groups:
+      go: {patterns: ["*"]}
+
+  - package-ecosystem: npm
+    directory: /web
+    schedule: {interval: weekly}
+    groups:
+      web: {patterns: ["*"]}
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: {interval: weekly}
+    groups:
+      actions: {patterns: ["*"]}
+
+  # The base images are pinned by digest: this is what moves them.
+  - package-ecosystem: docker
+    directories: [/, /deploy/db]
+    schedule: {interval: weekly}
+
+  - package-ecosystem: docker-compose
+    directory: /
+    schedule: {interval: weekly}
