@@ -231,6 +231,7 @@ services:
     environment:
       NETPROBE_DOMAIN: ${NETPROBE_DOMAIN:-localhost}
       NETPROBE_GRAFANA_DOMAIN: ${NETPROBE_GRAFANA_DOMAIN:-grafana.localhost}
+      NETPROBE_UI_ALLOW: ${NETPROBE_UI_ALLOW:-0.0.0.0/0 ::/0}
     ports:
       - "${NETPROBE_BIND:-0.0.0.0}:${NETPROBE_HTTP_PORT:-80}:80"
       - "${NETPROBE_BIND:-0.0.0.0}:${NETPROBE_HTTPS_PORT:-443}:443"

@@ -1,0 +1,44 @@
+[Unit]
+Description=netprobe edge
+Documentation=https://github.com/Arylite/netprobe
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/netprobe-edge
+Restart=always
+RestartSec=5
+
+# The address of the central and the other settings: NETPROBE_CENTRAL=https://...
+EnvironmentFile=/etc/netprobe/edge.env
+# The token reaches the process as a file of its own, which nothing else can read.
+LoadCredential=token:/etc/netprobe/edge_token
+Environment=NETPROBE_TOKEN_FILE=%d/token
+
+DynamicUser=yes
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
