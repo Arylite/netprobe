@@ -11,8 +11,7 @@ on:
         type: boolean
         default: false
 
-permissions:
-  contents: read
+# No permissions here: the jobs get those of the caller, and a block would cap them.
 
 jobs:
   image:
