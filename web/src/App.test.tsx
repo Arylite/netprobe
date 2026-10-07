@@ -263,6 +263,29 @@ describe("checks", () => {
     expect(central.called("POST /api/v1/checks")[0]?.body).toEqual({ id: "web", kind: "http", target: "https://example.com", interval_seconds: 60 });
   });
 
+  it("asks for what a kind needs and sets its shortest interval", async () => {
+    signedInAs(admin);
+    const central = mockCentral({
+      ...quietCentral,
+      "POST /api/v1/checks": { status: 201, body: { id: "cert", kind: "tls", target: "example.com", expect: "30", interval_seconds: 60 } },
+    });
+    renderApp(central, "/checks");
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole("button", { name: "Add a check" }));
+    await user.type(await screen.findByLabelText("Name"), "cert");
+    expect(screen.queryByLabelText("Expect")).toBeNull();
+    await user.click(screen.getByRole("combobox", { name: "Kind" }));
+    await user.click(await screen.findByRole("option", { name: "TLS certificate" }));
+    expect(screen.getByLabelText("Run every (seconds)")).toHaveValue("60");
+    await user.type(screen.getByLabelText("Target"), "example.com");
+    await user.type(screen.getByLabelText("Expect"), "30");
+    await user.click(screen.getByRole("button", { name: "Add" }));
+
+    await waitFor(() => expect(central.called("POST /api/v1/checks")).toHaveLength(1));
+    expect(central.called("POST /api/v1/checks")[0]?.body).toEqual({ id: "cert", kind: "tls", target: "example.com", expect: "30", interval_seconds: 60 });
+  });
+
   it("lists the results of a check with the name of each edge", async () => {
     signedInAs(viewer);
     renderApp(

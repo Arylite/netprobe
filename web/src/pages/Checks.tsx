@@ -9,17 +9,8 @@ import { unwrap, unwrapEmpty } from "../api/client";
 import { useChecks } from "../api/queries";
 import { useSession, useUser } from "../auth/session";
 import { ActionsCell } from "../components/ActionsCell";
+import { KINDS, kindInfo, type CheckKind } from "../lib/checkKinds";
 import { DataTable, ErrorAlert, PageHeader, QueryState, confirmAction, fail, succeed } from "../components/ui";
-
-const KINDS = [
-  { value: "tcp", label: "TCP connect" },
-  { value: "http", label: "HTTP request" },
-];
-
-const TARGET_HINT: Record<string, string> = {
-  tcp: "host:port, for example example.com:443",
-  http: "A URL, for example https://example.com/health",
-};
 
 export function Checks() {
   const { api } = useSession();
@@ -30,17 +21,20 @@ export function Checks() {
 
   const form = useForm({
     mode: "controlled",
-    initialValues: { id: "", kind: "tcp", target: "", interval: 30 as number | string },
+    initialValues: { id: "", kind: "tcp", target: "", expect: "", interval: 30 as number | string },
     validate: {
       id: (v) => (v.trim() === "" ? "Give the check a name" : null),
       target: (v) => (v.trim() === "" ? "Say what to measure" : null),
-      interval: (v) => (typeof v === "number" && v >= 1 ? null : "At least 1 second"),
+      interval: (v, values) => {
+        const least = kindInfo(values.kind)?.minInterval ?? 1;
+        return typeof v === "number" && v >= least ? null : `At least ${least} second${least === 1 ? "" : "s"} for this kind`;
+      },
     },
   });
 
   const create = useMutation({
     mutationFn: (v: typeof form.values) =>
-      unwrap(api.POST("/api/v1/checks", { body: { id: v.id.trim(), kind: v.kind as "tcp" | "http", target: v.target.trim(), interval_seconds: Number(v.interval) } })),
+      unwrap(api.POST("/api/v1/checks", { body: { id: v.id.trim(), kind: v.kind as CheckKind, target: v.target.trim(), ...(v.expect.trim() ? { expect: v.expect.trim() } : {}), interval_seconds: Number(v.interval) } })),
     onSuccess: (check) => {
       void queryClient.invalidateQueries({ queryKey: ["checks"] });
       void queryClient.invalidateQueries({ queryKey: ["status"] });
@@ -95,6 +89,11 @@ export function Checks() {
                   <Text ff="monospace" size="sm" style={{ wordBreak: "break-all" }}>
                     {c.target}
                   </Text>
+                  {c.expect && (
+                    <Text size="xs" c="dimmed" ff="monospace" style={{ wordBreak: "break-all" }}>
+                      expect {c.expect}
+                    </Text>
+                  )}
                 </Table.Td>
                 <Table.Td>{c.interval_seconds} s</Table.Td>
                 {admin && (
@@ -129,9 +128,20 @@ export function Checks() {
         <form onSubmit={form.onSubmit((v) => create.mutate(v))} noValidate>
           <Stack gap="md">
             <TextInput label="Name" description="Shown in the overview and in notifications." data-autofocus {...form.getInputProps("id")} />
-            <Select label="Kind" data={KINDS} allowDeselect={false} {...form.getInputProps("kind")} />
-            <TextInput label="Target" description={TARGET_HINT[form.values.kind]} {...form.getInputProps("target")} />
-            <NumberInput label="Run every (seconds)" min={1} allowDecimal={false} {...form.getInputProps("interval")} />
+            <Select
+              label="Kind"
+              data={KINDS.map(({ value, label }) => ({ value, label }))}
+              allowDeselect={false}
+              {...form.getInputProps("kind")}
+              onChange={(value) => {
+                form.getInputProps("kind").onChange(value);
+                const least = kindInfo(value ?? "")?.minInterval ?? 1;
+                if (typeof form.values.interval === "number" && form.values.interval < least) form.setFieldValue("interval", least);
+              }}
+            />
+            <TextInput label="Target" description={kindInfo(form.values.kind)?.target} {...form.getInputProps("target")} />
+            {kindInfo(form.values.kind)?.expect && <TextInput label="Expect" description={kindInfo(form.values.kind)?.expect} {...form.getInputProps("expect")} />}
+            <NumberInput label="Run every (seconds)" min={kindInfo(form.values.kind)?.minInterval ?? 1} allowDecimal={false} {...form.getInputProps("interval")} />
             {create.isError && <ErrorAlert error={create.error} />}
             <Group justify="flex-end">
               <Button variant="default" onClick={close}>

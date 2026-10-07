@@ -1014,9 +1014,11 @@ export interface components {
         Check: {
             id: string;
             /** @enum {string} */
-            kind: "tcp" | "http";
-            /** @description host:port for tcp, a URL for http. */
+            kind: "tcp" | "http" | "dns" | "tls" | "icmp" | "ntp" | "banner" | "closed" | "download" | "traceroute" | "domain";
+            /** @description What to measure; its form depends on the kind: host:port, a URL, a name, a host. */
             target: string;
+            /** @description What a good answer is, for the kinds that take one. */
+            expect?: string;
             interval_seconds: number;
         };
         Result: {
@@ -1030,8 +1032,9 @@ export interface components {
         CheckStatus: {
             id: string;
             /** @enum {string} */
-            kind: "tcp" | "http";
+            kind: "tcp" | "http" | "dns" | "tls" | "icmp" | "ntp" | "banner" | "closed" | "download" | "traceroute" | "domain";
             target: string;
+            expect?: string;
             interval_seconds: number;
             edges: components["schemas"]["EdgeStatus"][];
         };
