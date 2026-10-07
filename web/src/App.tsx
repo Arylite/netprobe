@@ -13,6 +13,7 @@ import { SessionProvider } from "./auth/session";
 import { AdminOnly, Layout, NotFound, RequireSession } from "./components/Layout";
 import type { Config } from "./config";
 import { Account } from "./pages/Account";
+import { Audit } from "./pages/Audit";
 import { Channels } from "./pages/Channels";
 import { CheckResults } from "./pages/CheckResults";
 import { Checks } from "./pages/Checks";
@@ -51,6 +52,14 @@ export const routes: RouteObject[] = [
             element: (
               <AdminOnly>
                 <Users />
+              </AdminOnly>
+            ),
+          },
+          {
+            path: "audit",
+            element: (
+              <AdminOnly>
+                <Audit />
               </AdminOnly>
             ),
           },

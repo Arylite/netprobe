@@ -18,6 +18,7 @@ import {
   IconBellRinging,
   IconChecklist,
   IconChevronDown,
+  IconHistory,
   IconLayoutDashboard,
   IconLogout,
   IconMoon,
@@ -53,6 +54,7 @@ const configure: Item[] = [
 const administer: Item[] = [
   { to: "/channels", label: "Channels", icon: IconWebhook },
   { to: "/users", label: "Users", icon: IconUsers },
+  { to: "/audit", label: "Audit log", icon: IconHistory },
 ];
 
 /** Sends whoever is not signed in to the login page, and back after it. */

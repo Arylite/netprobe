@@ -71,6 +71,15 @@ export function useChannels(enabled = true) {
   });
 }
 
+export function useAudit(limit: number) {
+  const { api } = useSession();
+  return useQuery({
+    queryKey: ["audit", limit],
+    queryFn: async () => (await unwrap(api.GET("/api/v1/audit", { params: { query: { limit } } }))).events,
+    refetchInterval: REFRESH_MS,
+  });
+}
+
 export function useUsers() {
   const { api } = useSession();
   return useQuery({

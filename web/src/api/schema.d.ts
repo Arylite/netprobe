@@ -748,6 +748,52 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/audit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The latest security-relevant events, newest first (administrator)
+         * @description Sign-ins and refused sign-ins, and every change of edges, checks, channels, users and passwords, with who did it and from which address.
+         */
+        get: {
+            parameters: {
+                query?: {
+                    limit?: number;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The events. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            events: components["schemas"]["AuditEvent"][];
+                        };
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["Forbidden"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/channels": {
         parameters: {
             query?: never;
@@ -1029,6 +1075,19 @@ export interface components {
             detail?: string;
             /** @description recovered, edge revoked or check removed. */
             resolution?: string;
+        };
+        AuditEvent: {
+            /** Format: int64 */
+            id: number;
+            /** Format: date-time */
+            at: string;
+            /** @description Absent when nobody was signed in. */
+            actor?: string;
+            /** @description login, login.failed, logout, setup, password.change, edge.create, edge.revoke, check.create, check.remove, channel.create, channel.remove, channel.test, user.create or user.delete. */
+            action: string;
+            /** @description What it was done to. */
+            target?: string;
+            client_ip?: string;
         };
         Channel: {
             name: string;

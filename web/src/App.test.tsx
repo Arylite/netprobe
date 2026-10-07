@@ -547,3 +547,38 @@ describe("getting started", () => {
     expect(central.called("GET /api/v1/channels")).toHaveLength(0);
   });
 });
+
+describe("the audit log", () => {
+  const events = [
+    { id: 3, at: ago(10), action: "login.failed", target: "alice", client_ip: "198.51.100.2" },
+    { id: 2, at: ago(60), actor: "alice", action: "edge.create", target: "paris", client_ip: "203.0.113.7" },
+    { id: 1, at: ago(120), actor: "alice", action: "login", client_ip: "203.0.113.7" },
+  ];
+
+  it("tells an administrator who did what, from where", async () => {
+    signedInAs(admin);
+    renderApp(mockCentral({ ...quietCentral, "GET /api/v1/audit": { body: { events } } }), "/audit");
+    expect(await screen.findByRole("heading", { name: "Audit log" })).toBeInTheDocument();
+    expect(await screen.findByText("Sign-in refused")).toBeInTheDocument();
+    expect(screen.getByText("Edge added")).toBeInTheDocument();
+    expect(screen.getByText("Signed in")).toBeInTheDocument();
+    expect(screen.getByText("nobody")).toBeInTheDocument();
+    expect(screen.getAllByText("203.0.113.7")).toHaveLength(2);
+    expect(screen.getByText("paris")).toBeInTheDocument();
+  });
+
+  it("is not for a viewer, and is not even offered", async () => {
+    signedInAs(viewer);
+    const central = mockCentral(quietCentral);
+    renderApp(central, "/audit");
+    expect(await screen.findByText("This page is for administrators.")).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Audit log" })).not.toBeInTheDocument();
+    expect(central.called("GET /api/v1/audit")).toHaveLength(0);
+  });
+
+  it("is in the menu of an administrator", async () => {
+    signedInAs(admin);
+    renderApp(mockCentral(quietCentral));
+    expect(await screen.findByRole("link", { name: "Audit log" })).toBeInTheDocument();
+  });
+});
