@@ -8,6 +8,7 @@ how to do things with it.
 | [Getting started](getting-started.md) | from nothing to a check that runs, in ten minutes |
 | [Installing with the script](install.md) | one command for an edge or the central, with Docker or a Cloudflare Tunnel |
 | [Deploying](deploy.md) | a server on the internet: names, certificates, a Cloudflare Tunnel, what to check before you go live |
+| [Checks](checks.md) | the eleven kinds of check, what each measures and expects |
 | [Edges](edges.md) | putting an edge on a machine: Docker, or a binary and systemd |
 | [Alerts](alerting.md) | channels for Slack, Discord and others, checking a signature, tuning when an incident opens |
 | [Grafana](grafana.md) | the dashboards, images of panels, a Grafana of your own |

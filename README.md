@@ -40,7 +40,7 @@ sides have a `doctor` command.
 |---|---|
 | **Binaries** | `netprobe-central`, `netprobe-edge`, for linux (amd64, arm64), macOS (arm64), windows (amd64) |
 | **Images** | `central`, `edge`, `web`, `db`, `renderer`, for amd64 and arm64, scanned before they are published |
-| **Checks** | TCP connect and HTTP request, every second at best |
+| **Checks** | eleven kinds: TCP, HTTP (status and content), DNS, TLS certificate, ICMP ping, traceroute, NTP clock, service banner, closed port, download speed, domain expiry; every second at best |
 | **Storage** | PostgreSQL with TimescaleDB: compressed after 7 days, kept as long as you say |
 | **Alerts** | incidents from failing checks and silent edges, signed webhooks |
 | **Interfaces** | a web UI to manage it, three Grafana dashboards to look at it, a documented JSON API |
@@ -59,7 +59,16 @@ docker compose logs central | grep setup_code     # six digits
 Open <https://localhost> (the proxy makes a certificate with its own authority:
 your browser warns once), give the code, and create the administrator. The home
 page then guides the first steps: register an edge, add a check, add a channel.
-See [Docker](#docker) for a real name, a Cloudflare Tunnel, edges and upgrades.
+See [Docker](#docker) for a real name, a Cloudflare Tunnel, edges and upgrades, and the
+[guides](docs/README.md) for the rest.
+
+Or in one command on a Linux server, for the central or for an edge (see
+[Installing with the script](docs/install.md), which says how to read it first):
+
+```sh
+curl -fsSL https://github.com/Arylite/netprobe/releases/download/v1.0.0-rc.2/install.sh | sudo sh -s -- central --domain netprobe.example.com
+curl -fsSL https://github.com/Arylite/netprobe/releases/download/v1.0.0-rc.2/install.sh | sudo sh -s -- edge --central https://netprobe.example.com
+```
 
 From the source:
 
@@ -93,12 +102,47 @@ extension must be creatable by the database user.
 
 ## Architecture
 
+```mermaid
+flowchart LR
+    subgraph sites[Where you want to measure from]
+        e1[Edge: paris]
+        e2[Edge: tokyo]
+        e3[Edge: office]
+    end
+    subgraph server[Your server]
+        central[Central<br/>edge API and UI API]
+        ui[Web UI<br/>static files]
+        db[(PostgreSQL<br/>TimescaleDB)]
+        grafana[Grafana]
+    end
+    hooks[Slack, Discord,<br/>your webhooks]
+    e1 & e2 & e3 -->|"HTTPS + token<br/>assignments, results"| central
+    ui -->|"HTTPS + bearer token"| central
+    central --> db
+    grafana -->|"SQL, read-only role"| db
+    central -->|"signed webhooks<br/>(incidents)"| hooks
 ```
-edge (Go) --- HTTPS + token: poll assignments, post results ---> central (Go) ---> Postgres / TimescaleDB
-                                                                  ^   |                  ^
-                                  web UI (static files) ---------+   +--> webhooks       |
-                                  HTTPS + bearer token, JSON API         (incidents)     |
-                                                                          Grafana (SQL, read-only)
+
+An edge only dials out, and one poll is also its heartbeat:
+
+```mermaid
+sequenceDiagram
+    participant E as Edge
+    participant C as Central
+    participant D as Database
+    loop every 30 s
+        E->>C: GET /v1/assignments (token)
+        C->>D: the checks
+        C-->>E: the checks, or 304 if nothing changed
+    end
+    loop each check, at its own interval
+        E->>E: measure (tcp, http, dns, tls, icmp, ...)
+    end
+    loop every 10 s
+        E->>C: POST /v1/results (a batch)
+        C->>D: store
+        C-->>E: 204
+    end
 ```
 
 - The central serves two APIs and no files: the edge API and an API for the web
@@ -138,8 +182,8 @@ internal/central/alert   incidents from failing checks and silent edges, webhook
 web                     the management UI: React, built to static files
 ```
 
-Dependencies go one way: `cmd` -> `edge` or `central` -> `api` and `probe`.
-`api` and `probe` import no other package of the project, and `edge` and
+Dependencies go one way: `cmd` -> `edge` or `central` -> `probe` -> `api`.
+`api` imports no other package of the project, `probe` only `api`, and `edge` and
 `central` never import each other (only `e2e` imports both, in tests).
 
 ## Docker

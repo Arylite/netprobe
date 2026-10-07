@@ -65,12 +65,14 @@ For a real machine, see [Edges](edges.md): a container, or systemd.
 
 ## 5. Add a check
 
-**Checks**, then **Add a check**. Two kinds:
+**Checks**, then **Add a check**. Start with one of these; [Checks](checks.md) has the eleven kinds
+(DNS, TLS certificate, ping, traceroute, NTP clock, banner, closed port, download, domain expiry):
 
 | Kind | Target | It measures |
 |---|---|---|
 | TCP connect | `example.com:443` | the time to open a connection |
 | HTTP request | `https://example.com/health` | the time until the headers arrive; a status of 400 or more fails |
+| TLS certificate | `example.com` | the handshake; fails when the certificate expires within 14 days |
 
 Every edge runs every check, at the interval you give. The edge learns of a new check
 within 30 seconds.
