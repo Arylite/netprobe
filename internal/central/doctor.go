@@ -147,6 +147,47 @@ func DoctorSteps(cfg DoctorConfig) ([]doctor.Step, func()) {
 			}
 			return doctor.Pass(fmt.Sprintf("all %d active edges reported in the last %s", len(active), silentAfter))
 		}},
+		{Name: "alerting", Run: func(ctx context.Context) doctor.Outcome {
+			if st == nil {
+				return doctor.Skipped("the schema is not up to date")
+			}
+			channels, err := st.ListChannels(ctx)
+			if err != nil {
+				return doctor.Failure(err.Error(), "")
+			}
+			open, err := st.OpenIncidents(ctx)
+			if err != nil {
+				return doctor.Failure(err.Error(), "")
+			}
+			var going []string
+			for _, i := range open {
+				if i.Kind == store.IncidentCheck {
+					going = append(going, i.CheckID+" on "+i.EdgeName)
+				} else {
+					going = append(going, i.EdgeName+" stopped reporting")
+				}
+			}
+			switch {
+			case len(going) > 0:
+				return doctor.Warning(fmt.Sprintf("%d incidents open: %s", len(going), strings.Join(going, ", ")), "'netprobe-central incident list --open' says what each one is")
+			case len(channels) == 0:
+				return doctor.Warning("no notification channel: incidents are recorded but nobody is told", "add a webhook with 'netprobe-central channel add --name NAME --url URL'")
+			}
+			return doctor.Pass(fmt.Sprintf("%d channels, no incident open", len(channels)))
+		}},
+		{Name: "retention", Run: func(ctx context.Context) doctor.Outcome {
+			if st == nil {
+				return doctor.Skipped("the schema is not up to date")
+			}
+			kept, err := st.Retention(ctx)
+			if err != nil {
+				return doctor.Failure(err.Error(), "")
+			}
+			if kept == 0 {
+				return doctor.Warning("results are kept for ever, the database grows without bound", "start 'serve' with --retention, for example --retention 2160h for 90 days")
+			}
+			return doctor.Pass("results are dropped after " + kept.String())
+		}},
 		{Name: "edge-listen", Run: func(context.Context) doctor.Outcome {
 			return checkListen(cfg.EdgeListen, "the edge API", "edges refuse to send their token over plain HTTP to a remote host")
 		}},

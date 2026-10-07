@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/Arylite/netprobe/internal/api"
+	"github.com/Arylite/netprobe/internal/central/store"
 	"github.com/Arylite/netprobe/internal/central/store/storetest"
 	"github.com/Arylite/netprobe/internal/doctor"
 )
@@ -41,6 +42,40 @@ func TestDoctorHealthyCentral(t *testing.T) {
 	lines := diagnose(t, DoctorConfig{DatabaseURL: url, EdgeListen: "127.0.0.1:8080", APIListen: "127.0.0.1:8081"})
 	for _, name := range []string{"database", "timescaledb", "schema", "edges", "checks", "activity", "edge-listen", "api-listen"} {
 		want(t, lines, name, doctor.OK)
+	}
+}
+
+func TestDoctorAlertingAndRetention(t *testing.T) {
+	st, url := storetest.OpenURL(t)
+	ctx := context.Background()
+	edge, _, _ := st.AddEdge(ctx, "paris")
+	cfg := DoctorConfig{DatabaseURL: url, EdgeListen: "127.0.0.1:8080", APIListen: "127.0.0.1:8081"}
+
+	lines := diagnose(t, cfg)
+	if l := want(t, lines, "alerting", doctor.Warn); !strings.Contains(l.Detail, "no notification channel") {
+		t.Fatalf("no channel: %q", l.Detail)
+	}
+	if l := want(t, lines, "retention", doctor.Warn); !strings.Contains(l.Detail, "for ever") || l.Hint == "" {
+		t.Fatalf("no retention: %q", l.Detail)
+	}
+
+	if _, err := st.AddChannel(ctx, "ops", "https://example.com/hook", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetRetention(ctx, 90*24*time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	lines = diagnose(t, cfg)
+	want(t, lines, "alerting", doctor.OK)
+	if l := want(t, lines, "retention", doctor.OK); !strings.Contains(l.Detail, "2160h") {
+		t.Fatalf("retention: %q", l.Detail)
+	}
+
+	if _, err := st.OpenIncident(ctx, store.IncidentCheck, "web", edge.ID, "refused", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if l := want(t, diagnose(t, cfg), "alerting", doctor.Warn); !strings.Contains(l.Detail, "web on paris") {
+		t.Fatalf("open incident: %q", l.Detail)
 	}
 }
 
