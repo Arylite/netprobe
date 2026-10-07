@@ -72,20 +72,9 @@ func run(cfg config) error {
 	return nil
 }
 
-const noDeny = "none"
+const noDeny = probe.DenyNone
 
-// parseDeny turns the --deny value into a policy: CIDRs separated by commas,
-// or "none".
-func parseDeny(value string) (probe.Policy, error) {
-	if value == noDeny {
-		return probe.Policy{}, nil
-	}
-	var cidrs []string
-	for _, c := range strings.Split(value, ",") {
-		cidrs = append(cidrs, strings.TrimSpace(c))
-	}
-	return probe.ParsePolicy(cidrs)
-}
+func parseDeny(value string) (probe.Policy, error) { return probe.ParseDeny(value) }
 
 // readToken takes the token from the file when one is given, else from
 // NETPROBE_TOKEN. It is never a flag: command lines are visible to every user.
