@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"io"
@@ -29,7 +30,7 @@ func healthcheckCommand(args []string, out io.Writer) error {
 		if ip := net.ParseIP(host); host == "" || (ip != nil && ip.IsUnspecified()) {
 			host = "127.0.0.1"
 		}
-		conn, err := net.DialTimeout("tcp", net.JoinHostPort(host, port), healthTimeout)
+		conn, err := (&net.Dialer{Timeout: healthTimeout}).DialContext(context.Background(), "tcp", net.JoinHostPort(host, port))
 		if err != nil {
 			return fmt.Errorf("%s does not accept connections: %w", addr, err)
 		}

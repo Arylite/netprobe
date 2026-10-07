@@ -2,6 +2,8 @@ package central
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -102,6 +104,48 @@ func TestDoctorReadsTheCertificateOfASurfaceThatServesTLS(t *testing.T) {
 
 	cfg.EdgeTLSCert = "/nonexistent.pem"
 	want(t, diagnose(t, cfg), "edge-listen", doctor.Fail)
+}
+
+func TestDoctorSaysWhereTheSecretsOfTheChannelsAreKept(t *testing.T) {
+	st, url := storetest.OpenURL(t)
+	cfg := DoctorConfig{DatabaseURL: url, EdgeListen: "127.0.0.1:8080", APIListen: "127.0.0.1:8081"}
+	want(t, diagnose(t, cfg), "secrets", doctor.OK)
+
+	if _, err := st.AddChannel(context.Background(), "ops", "https://example.com/hook", "s3cret"); err != nil {
+		t.Fatal(err)
+	}
+	if l := want(t, diagnose(t, cfg), "secrets", doctor.Warn); !strings.Contains(l.Detail, "in clear") || l.Hint == "" {
+		t.Fatalf("no key: %+v", l)
+	}
+
+	key, _ := store.GenerateKey()
+	file := filepath.Join(t.TempDir(), "secret_key")
+	if err := os.WriteFile(file, []byte(key), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg.SecretKeyFile = file
+	if l := want(t, diagnose(t, cfg), "secrets", doctor.Warn); !strings.Contains(l.Detail, "not encrypted yet") {
+		t.Fatalf("a key and a channel in clear: %+v", l)
+	}
+
+	raw, _ := store.ParseKey(key)
+	c, _ := store.NewCipher(raw)
+	sealed, err := store.Open(context.Background(), url, store.WithCipher(c))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sealed.Close()
+	if _, err := sealed.EncryptChannels(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if l := want(t, diagnose(t, cfg), "secrets", doctor.OK); !strings.Contains(l.Detail, "1 channels encrypted") {
+		t.Fatalf("encrypted: %+v", l)
+	}
+
+	cfg.SecretKeyFile = ""
+	want(t, diagnose(t, cfg), "secrets", doctor.Fail)
+	cfg.SecretKeyFile = filepath.Join(t.TempDir(), "missing")
+	want(t, diagnose(t, cfg), "secrets", doctor.Fail)
 }
 
 func TestDoctorNeedsADatabaseURL(t *testing.T) {

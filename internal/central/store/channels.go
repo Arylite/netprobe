@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -67,9 +68,17 @@ func (s *Store) AddChannel(ctx context.Context, name, rawURL, secret string) (Ch
 		return Channel{}, err
 	}
 	c := Channel{Name: name, URL: rawURL, Secret: secret, CreatedAt: time.Now().UTC()}
-	_, err := s.pool.Exec(ctx,
+	sealedURL, err := s.sealValue(c.URL, channelContext(name, "url"))
+	if err != nil {
+		return Channel{}, err
+	}
+	sealedSecret, err := s.sealValue(c.Secret, channelContext(name, "secret"))
+	if err != nil {
+		return Channel{}, err
+	}
+	_, err = s.pool.Exec(ctx,
 		`INSERT INTO channels (name, url, secret, created_at) VALUES ($1, $2, $3, $4)`,
-		c.Name, c.URL, c.Secret, c.CreatedAt)
+		c.Name, sealedURL, sealedSecret, c.CreatedAt)
 	if isUniqueViolation(err) {
 		return Channel{}, fmt.Errorf("channel %q: %w", name, ErrExists)
 	}
@@ -112,6 +121,9 @@ func (s *Store) ListChannels(ctx context.Context) ([]Channel, error) {
 		if err := rows.Scan(&c.Name, &c.URL, &c.Secret, &c.CreatedAt); err != nil {
 			return nil, fmt.Errorf("list channels: %w", err)
 		}
+		if err := s.openChannel(&c); err != nil {
+			return nil, err
+		}
 		channels = append(channels, c)
 	}
 	return channels, rows.Err()
@@ -128,5 +140,73 @@ func (s *Store) GetChannel(ctx context.Context, name string) (Channel, error) {
 	if err != nil {
 		return Channel{}, fmt.Errorf("read channel: %w", err)
 	}
-	return c, nil
+	return c, s.openChannel(&c)
+}
+
+// openChannel decrypts the address and the secret of a channel as read.
+func (s *Store) openChannel(c *Channel) error {
+	var err error
+	if c.URL, err = s.openValue(c.URL, channelContext(c.Name, "url")); err != nil {
+		return fmt.Errorf("channel %q: %w", c.Name, err)
+	}
+	if c.Secret, err = s.openValue(c.Secret, channelContext(c.Name, "secret")); err != nil {
+		return fmt.Errorf("channel %q: %w", c.Name, err)
+	}
+	return nil
+}
+
+// EncryptChannels encrypts the channels written before there was a key, and
+// returns how many it changed.
+func (s *Store) EncryptChannels(ctx context.Context) (int, error) {
+	if s.cipher == nil {
+		return 0, errors.New("no key was given")
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("encrypt channels: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	rows, err := tx.Query(ctx, `SELECT name, url, secret FROM channels FOR UPDATE`)
+	if err != nil {
+		return 0, fmt.Errorf("encrypt channels: %w", err)
+	}
+	var todo []Channel
+	for rows.Next() {
+		var c Channel
+		if err := rows.Scan(&c.Name, &c.URL, &c.Secret); err != nil {
+			rows.Close()
+			return 0, fmt.Errorf("encrypt channels: %w", err)
+		}
+		if !strings.HasPrefix(c.URL, sealedPrefix) {
+			todo = append(todo, c)
+		}
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return 0, fmt.Errorf("encrypt channels: %w", err)
+	}
+	for _, c := range todo {
+		sealedURL, err := s.sealValue(c.URL, channelContext(c.Name, "url"))
+		if err != nil {
+			return 0, err
+		}
+		sealedSecret, err := s.sealValue(c.Secret, channelContext(c.Name, "secret"))
+		if err != nil {
+			return 0, err
+		}
+		if _, err := tx.Exec(ctx, `UPDATE channels SET url = $2, secret = $3 WHERE name = $1`, c.Name, sealedURL, sealedSecret); err != nil {
+			return 0, fmt.Errorf("encrypt channels: %w", err)
+		}
+	}
+	return len(todo), tx.Commit(ctx)
+}
+
+// ChannelEncryption counts the channels stored in clear and the ones encrypted.
+func (s *Store) ChannelEncryption(ctx context.Context) (clear, sealed int, err error) {
+	err = s.pool.QueryRow(ctx,
+		`SELECT count(*) FILTER (WHERE url NOT LIKE 'enc1:%'), count(*) FILTER (WHERE url LIKE 'enc1:%') FROM channels`).Scan(&clear, &sealed)
+	if err != nil {
+		return 0, 0, fmt.Errorf("read channels: %w", err)
+	}
+	return clear, sealed, nil
 }

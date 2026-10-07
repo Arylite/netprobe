@@ -32,7 +32,8 @@ services:
         umask 077
         [ -s /secrets/db_password ] || head -c 32 /dev/urandom | base64 | tr -d '/+=\n' > /secrets/db_password
         [ -s /secrets/database_url ] || printf 'postgres://netprobe:%s@db:5432/netprobe?sslmode=disable' "$$(cat /secrets/db_password)" > /secrets/database_url
-        chmod 444 /secrets/db_password /secrets/database_url
+        [ -s /secrets/secret_key ] || head -c 32 /dev/urandom | base64 > /secrets/secret_key
+        chmod 444 /secrets/db_password /secrets/database_url /secrets/secret_key
     networks: [backend]
 
   db:
@@ -64,6 +65,7 @@ services:
     image: ghcr.io/arylite/netprobe-central:${NETPROBE_VERSION:-latest}
     environment:
       NETPROBE_DATABASE_URL_FILE: /secrets/database_url
+      NETPROBE_SECRET_KEY_FILE: /secrets/secret_key
       # Only the proxy reaches the central, and it says who the client is.
       NETPROBE_TRUSTED_PROXIES: 172.28.0.10
       NETPROBE_RETENTION: ${NETPROBE_RETENTION:-2160h}

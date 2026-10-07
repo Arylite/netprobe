@@ -29,6 +29,8 @@ type DoctorConfig struct {
 	// when they serve TLS themselves.
 	EdgeTLSCert string
 	APITLSCert  string
+	// SecretKeyFile is the file of the key that encrypts the channels, if any.
+	SecretKeyFile string
 	// Now is the clock; nil means time.Now.
 	Now func() time.Time
 }
@@ -189,10 +191,12 @@ func DoctorSteps(cfg DoctorConfig) ([]doctor.Step, func()) {
 			if st == nil {
 				return doctor.Skipped("the schema is not up to date")
 			}
-			channels, err := st.ListChannels(ctx)
+			// Counted, not read: a diagnostic does not need the secrets.
+			clear, sealed, err := st.ChannelEncryption(ctx)
 			if err != nil {
 				return doctor.Failure(err.Error(), "")
 			}
+			channels := clear + sealed
 			open, err := st.OpenIncidents(ctx)
 			if err != nil {
 				return doctor.Failure(err.Error(), "")
@@ -208,10 +212,39 @@ func DoctorSteps(cfg DoctorConfig) ([]doctor.Step, func()) {
 			switch {
 			case len(going) > 0:
 				return doctor.Warning(fmt.Sprintf("%d incidents open: %s", len(going), strings.Join(going, ", ")), "'netprobe-central incident list --open' says what each one is")
-			case len(channels) == 0:
+			case channels == 0:
 				return doctor.Warning("no notification channel: incidents are recorded but nobody is told", "add a webhook with 'netprobe-central channel add --name NAME --url URL'")
 			}
-			return doctor.Pass(fmt.Sprintf("%d channels, no incident open", len(channels)))
+			return doctor.Pass(fmt.Sprintf("%d channels, no incident open", channels))
+		}},
+		{Name: "secrets", Run: func(ctx context.Context) doctor.Outcome {
+			if st == nil {
+				return doctor.Skipped("the schema is not up to date")
+			}
+			if cfg.SecretKeyFile != "" {
+				raw, err := os.ReadFile(cfg.SecretKeyFile)
+				if err == nil {
+					_, err = store.ParseKey(string(raw))
+				}
+				if err != nil {
+					return doctor.Failure("the key file cannot be used: "+err.Error(), "'netprobe-central secret-key' makes a key; keep it in the file NETPROBE_SECRET_KEY_FILE names")
+				}
+			}
+			clear, sealed, err := st.ChannelEncryption(ctx)
+			if err != nil {
+				return doctor.Failure(err.Error(), "")
+			}
+			switch {
+			case sealed > 0 && cfg.SecretKeyFile == "":
+				return doctor.Failure(fmt.Sprintf("%d channels are encrypted and no key is given", sealed), "set NETPROBE_SECRET_KEY_FILE to the file that holds the key")
+			case clear > 0 && cfg.SecretKeyFile == "":
+				return doctor.Warning(fmt.Sprintf("%d channels keep their address and secret in clear in the database", clear), "make a key with 'netprobe-central secret-key', then set NETPROBE_SECRET_KEY_FILE and run 'netprobe-central secrets encrypt'")
+			case clear > 0:
+				return doctor.Warning(fmt.Sprintf("%d channels are not encrypted yet", clear), "run 'netprobe-central secrets encrypt'")
+			case sealed > 0:
+				return doctor.Pass(fmt.Sprintf("%d channels encrypted", sealed))
+			}
+			return doctor.Pass("no channel yet")
 		}},
 		{Name: "retention", Run: func(ctx context.Context) doctor.Outcome {
 			if st == nil {

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"io"
+	"os"
 
 	"github.com/Arylite/netprobe/internal/central"
 	"github.com/Arylite/netprobe/internal/cli"
@@ -30,7 +31,7 @@ func doctorCommand(args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	steps, release := central.DoctorSteps(central.DoctorConfig{DatabaseURL: url, EdgeListen: *edgeListen, APIListen: *apiListen, EdgeTLSCert: *edgeCert, APITLSCert: *apiCert})
+	steps, release := central.DoctorSteps(central.DoctorConfig{DatabaseURL: url, EdgeListen: *edgeListen, APIListen: *apiListen, EdgeTLSCert: *edgeCert, APITLSCert: *apiCert, SecretKeyFile: os.Getenv("NETPROBE_SECRET_KEY_FILE")})
 	defer release()
 	lines := doctor.Run(context.Background(), steps)
 	doctor.Print(out, lines)

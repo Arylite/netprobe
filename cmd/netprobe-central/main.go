@@ -34,6 +34,8 @@ commands:
   user passwd --username NAME
                            change a password (read from stdin)
   user delete --username NAME
+  secret-key               print a new key for NETPROBE_SECRET_KEY_FILE
+  secrets encrypt          encrypt the channels written before there was a key
   doctor                   check the setup and say what is wrong
   healthcheck              exit 0 when both surfaces accept connections (containers)
   version                  print the version
@@ -75,6 +77,10 @@ func dispatch(args []string, out io.Writer) error {
 		return incidentCommand(args[1:], out)
 	case "user":
 		return userCommand(args[1:], out)
+	case "secret-key":
+		return secretKeyCommand(args[1:], out)
+	case "secrets":
+		return secretsCommand(args[1:], out)
 	case "doctor":
 		return doctorCommand(args[1:], out)
 	case "healthcheck":

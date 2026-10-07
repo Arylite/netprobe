@@ -20,11 +20,18 @@ const migrationLock = 7_304_201
 
 // Store is the database of the central.
 type Store struct {
-	pool *pgxpool.Pool
+	pool   *pgxpool.Pool
+	cipher *Cipher
 }
 
+// Option changes how a Store is opened.
+type Option func(*Store)
+
+// WithCipher encrypts the secrets of the channels, and reads them back.
+func WithCipher(c *Cipher) Option { return func(s *Store) { s.cipher = c } }
+
 // Open connects to the database and brings its schema up to date.
-func Open(ctx context.Context, url string) (*Store, error) {
+func Open(ctx context.Context, url string, opts ...Option) (*Store, error) {
 	pool, err := pgxpool.New(ctx, url)
 	if err != nil {
 		return nil, fmt.Errorf("connect to the database: %w", err)
@@ -34,6 +41,9 @@ func Open(ctx context.Context, url string) (*Store, error) {
 		return nil, fmt.Errorf("reach the database: %w", err)
 	}
 	s := &Store{pool: pool}
+	for _, opt := range opts {
+		opt(s)
+	}
 	if err := s.migrate(ctx); err != nil {
 		pool.Close()
 		return nil, err

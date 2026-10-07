@@ -42,7 +42,15 @@ func openStore(ctx context.Context, url string) (*store.Store, error) {
 	if url == "" {
 		return nil, errors.New("set --database-url, NETPROBE_DATABASE_URL or NETPROBE_DATABASE_URL_FILE")
 	}
+	cipher, err := loadCipher()
+	if err != nil {
+		return nil, err
+	}
+	var opts []store.Option
+	if cipher != nil {
+		opts = append(opts, store.WithCipher(cipher))
+	}
 	ctx, cancel := context.WithTimeout(ctx, connectTimeout)
 	defer cancel()
-	return store.Open(ctx, url)
+	return store.Open(ctx, url, opts...)
 }

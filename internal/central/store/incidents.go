@@ -163,6 +163,9 @@ func (s *Store) PendingNotifications(ctx context.Context, since time.Time) ([]No
 			return nil, fmt.Errorf("read pending notifications: %w", err)
 		}
 		n.Incident = i
+		if err := s.openChannel(&n.Channel); err != nil {
+			return nil, err
+		}
 		out = append(out, n)
 	}
 	return out, rows.Err()

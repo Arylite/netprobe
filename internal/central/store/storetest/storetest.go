@@ -23,10 +23,10 @@ func Open(t *testing.T) *store.Store {
 }
 
 // OpenURL is Open, and also returns the URL of the throwaway database.
-func OpenURL(t *testing.T) (*store.Store, string) {
+func OpenURL(t *testing.T, opts ...store.Option) (*store.Store, string) {
 	t.Helper()
 	url := EmptyDatabase(t)
-	s, err := store.Open(context.Background(), url)
+	s, err := store.Open(context.Background(), url, opts...)
 	if err != nil {
 		t.Fatal(err)
 	}

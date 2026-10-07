@@ -36,8 +36,9 @@ linters:
         - G201
         # Integer conversions of values already bounded by validation.
         - G115
-        # Files at paths set by the operator (flags, config).
+        # Files at paths set by the operator (flags, config, environment).
         - G304
+        - G703
         # math/rand for jitter and start offsets, never for secrets.
         - G404
     revive:
