@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 	"time"
 )
 
@@ -16,21 +17,37 @@ const (
 
 // Kinds of check.
 const (
-	KindTCP  = "tcp"
-	KindHTTP = "http"
+	KindTCP      = "tcp"        // a connection opens
+	KindHTTP     = "http"       // an HTTP request answers as expected
+	KindDNS      = "dns"        // a name resolves
+	KindTLS      = "tls"        // a certificate is valid, and for long enough
+	KindICMP     = "icmp"       // ICMP echo (ping), and how many are lost
+	KindNTP      = "ntp"        // a time server answers, and the clock is right
+	KindBanner   = "banner"     // a service greets as expected: SSH, SMTP, FTP, ...
+	KindClosed   = "closed"     // a port that must not be reachable is not
+	KindDownload = "download"   // a file comes down fast enough
+	KindRoute    = "traceroute" // the path to a host, and where it ends
+	KindDomain   = "domain"     // a domain name that is not about to expire
 )
+
+// Kinds lists every kind of check.
+var Kinds = []string{KindTCP, KindHTTP, KindDNS, KindTLS, KindICMP, KindNTP, KindBanner, KindClosed, KindDownload, KindRoute, KindDomain}
 
 // Limits shared by both sides.
 const (
 	MaxResultsPerBatch = 1000
 	MaxErrorLength     = 512
+	MaxTargetLength    = 512
+	MaxExpectLength    = 256
 )
 
 // Check is one measurement an edge runs on a schedule.
 type Check struct {
-	ID              string `json:"id"`
-	Kind            string `json:"kind"`
-	Target          string `json:"target"`
+	ID     string `json:"id"`
+	Kind   string `json:"kind"`
+	Target string `json:"target"`
+	// Expect refines what a good answer is; each kind says how.
+	Expect          string `json:"expect,omitempty"`
 	IntervalSeconds int    `json:"interval_seconds"`
 }
 
@@ -55,13 +72,27 @@ type ResultsRequest struct {
 
 // Validate reports why a check cannot be run.
 func (c Check) Validate() error {
+	if c.ID != "" && !slices.Contains(Kinds, c.Kind) {
+		return fmt.Errorf("check %s: unknown kind %q", c.ID, c.Kind)
+	}
+	return c.ValidateShape()
+}
+
+// ValidateShape is Validate for a check of a kind that may be newer than the
+// reader: an edge keeps such a check, and reports it as unsupported, rather than
+// refusing the whole list.
+func (c Check) ValidateShape() error {
 	switch {
 	case c.ID == "":
 		return errors.New("check id is empty")
-	case c.Kind != KindTCP && c.Kind != KindHTTP:
-		return fmt.Errorf("check %s: unknown kind %q", c.ID, c.Kind)
+	case c.Kind == "":
+		return fmt.Errorf("check %s: kind is empty", c.ID)
 	case c.Target == "":
 		return fmt.Errorf("check %s: target is empty", c.ID)
+	case len(c.Target) > MaxTargetLength:
+		return fmt.Errorf("check %s: target is longer than %d bytes", c.ID, MaxTargetLength)
+	case len(c.Expect) > MaxExpectLength:
+		return fmt.Errorf("check %s: expect is longer than %d bytes", c.ID, MaxExpectLength)
 	case c.IntervalSeconds < 1:
 		return fmt.Errorf("check %s: interval must be at least 1 second", c.ID)
 	}

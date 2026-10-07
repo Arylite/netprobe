@@ -121,7 +121,7 @@ func (c *Client) Assignments(ctx context.Context) (checks []api.Check, changed b
 		return nil, false, fmt.Errorf("decode assignments: %w", err)
 	}
 	for _, check := range body.Checks {
-		if err := check.Validate(); err != nil {
+		if err := check.ValidateShape(); err != nil {
 			return nil, false, fmt.Errorf("assignments: %w", err)
 		}
 	}

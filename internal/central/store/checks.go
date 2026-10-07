@@ -13,8 +13,8 @@ func (s *Store) AddCheck(ctx context.Context, c api.Check) error {
 		return err
 	}
 	_, err := s.pool.Exec(ctx,
-		`INSERT INTO checks (id, kind, target, interval_seconds) VALUES ($1, $2, $3, $4)`,
-		c.ID, c.Kind, c.Target, c.IntervalSeconds)
+		`INSERT INTO checks (id, kind, target, expect, interval_seconds) VALUES ($1, $2, $3, $4, $5)`,
+		c.ID, c.Kind, c.Target, c.Expect, c.IntervalSeconds)
 	if isUniqueViolation(err) {
 		return fmt.Errorf("check %q: %w", c.ID, ErrExists)
 	}
@@ -38,7 +38,7 @@ func (s *Store) RemoveCheck(ctx context.Context, id string) error {
 
 // ListChecks returns the checks ordered by id; never nil.
 func (s *Store) ListChecks(ctx context.Context) ([]api.Check, error) {
-	rows, err := s.pool.Query(ctx, `SELECT id, kind, target, interval_seconds FROM checks ORDER BY id`)
+	rows, err := s.pool.Query(ctx, `SELECT id, kind, target, expect, interval_seconds FROM checks ORDER BY id`)
 	if err != nil {
 		return nil, fmt.Errorf("list checks: %w", err)
 	}
@@ -46,7 +46,7 @@ func (s *Store) ListChecks(ctx context.Context) ([]api.Check, error) {
 	checks := []api.Check{}
 	for rows.Next() {
 		var c api.Check
-		if err := rows.Scan(&c.ID, &c.Kind, &c.Target, &c.IntervalSeconds); err != nil {
+		if err := rows.Scan(&c.ID, &c.Kind, &c.Target, &c.Expect, &c.IntervalSeconds); err != nil {
 			return nil, fmt.Errorf("list checks: %w", err)
 		}
 		checks = append(checks, c)

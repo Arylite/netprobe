@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -128,6 +129,61 @@ func TestAgentMeasuresAndTheCentralStoresTheResults(t *testing.T) {
 	}
 	if first := got[0]; first.EdgeID != s.edge.ID || !first.OK || first.RTTMillis < 0 {
 		t.Fatalf("stored %+v", first)
+	}
+}
+
+func TestChecksWithAnExpectationTravelToTheEdgeAndBack(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			_, _ = c.Write([]byte("SSH-2.0-test\r\n"))
+			c.Close()
+		}
+	}()
+	addr := ln.Addr().String()
+	s := start(t,
+		api.Check{ID: "greets", Kind: api.KindBanner, Target: addr, Expect: "SSH-2.0", IntervalSeconds: 1},
+		api.Check{ID: "wrong", Kind: api.KindBanner, Target: addr, Expect: "220", IntervalSeconds: 1},
+		api.Check{ID: "shut", Kind: api.KindClosed, Target: addr, IntervalSeconds: 1},
+	)
+	agent := &edge.Agent{
+		Client:         s.client(t, s.token),
+		Measure:        edge.ProbeMeasurer(probe.New(probe.Policy{}, time.Second)),
+		Interval:       50 * time.Millisecond,
+		ReportInterval: 50 * time.Millisecond,
+		Log:            quiet,
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go agent.Run(ctx)
+
+	want := map[string]struct {
+		ok  bool
+		err string
+	}{"greets": {true, ""}, "wrong": {false, "does not hold"}, "shut": {false, "the port is open"}}
+	deadline := time.Now().Add(10 * time.Second)
+	for id, w := range want {
+		var got []store.Result
+		for len(got) == 0 {
+			if time.Now().After(deadline) {
+				t.Fatalf("no result for %s", id)
+			}
+			time.Sleep(50 * time.Millisecond)
+			if got, err = s.store.RecentResults(context.Background(), id, 1); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if got[0].OK != w.ok || !strings.Contains(got[0].Error, w.err) {
+			t.Errorf("%s: %+v", id, got[0])
+		}
 	}
 }
 

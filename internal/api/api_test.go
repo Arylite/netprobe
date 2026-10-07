@@ -17,7 +17,7 @@ func TestCheckValidate(t *testing.T) {
 	}{
 		{"valid", func(*Check) {}, true},
 		{"no id", func(c *Check) { c.ID = "" }, false},
-		{"unknown kind", func(c *Check) { c.Kind = "icmp" }, false},
+		{"unknown kind", func(c *Check) { c.Kind = "carrier-pigeon" }, false},
 		{"no target", func(c *Check) { c.Target = "" }, false},
 		{"zero interval", func(c *Check) { c.IntervalSeconds = 0 }, false},
 	}

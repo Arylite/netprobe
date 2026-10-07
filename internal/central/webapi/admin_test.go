@@ -78,7 +78,7 @@ func TestAdministratorsManageEdges(t *testing.T) {
 func TestAdministratorsManageChecks(t *testing.T) {
 	f := newFixture(t, Config{})
 	admin := f.login(t, "alice", adminPassword)
-	check := api.Check{ID: "web", Kind: api.KindHTTP, Target: "https://example.com", IntervalSeconds: 30}
+	check := api.Check{ID: "web", Kind: api.KindHTTP, Target: "https://example.com", Expect: "200;contains:ok", IntervalSeconds: 30}
 
 	res, raw := f.do(t, http.MethodPost, "/api/v1/checks", admin, check, nil)
 	status(t, res, raw, http.StatusCreated)
@@ -88,7 +88,10 @@ func TestAdministratorsManageChecks(t *testing.T) {
 	res, raw = f.do(t, http.MethodPost, "/api/v1/checks", admin, check, nil)
 	status(t, res, raw, http.StatusConflict)
 	for name, bad := range map[string]any{
-		"unknown kind": api.Check{ID: "x", Kind: "icmp", Target: "a", IntervalSeconds: 5},
+		"unknown kind": api.Check{ID: "x", Kind: "carrier-pigeon", Target: "a", IntervalSeconds: 5},
+		"bad target":   api.Check{ID: "x", Kind: api.KindTCP, Target: "no-port", IntervalSeconds: 5},
+		"bad expect":   api.Check{ID: "x", Kind: api.KindTLS, Target: "example.com", Expect: "soon", IntervalSeconds: 60},
+		"too frequent": api.Check{ID: "x", Kind: api.KindTLS, Target: "example.com", IntervalSeconds: 5},
 		"no interval":  api.Check{ID: "x", Kind: api.KindTCP, Target: "a:1"},
 		"extra field":  map[string]any{"id": "x", "kind": "tcp", "target": "a:1", "interval_seconds": 5, "extra": 1},
 	} {

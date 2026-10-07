@@ -29,6 +29,7 @@ type statusCheckJSON struct {
 	ID              string           `json:"id"`
 	Kind            string           `json:"kind"`
 	Target          string           `json:"target"`
+	Expect          string           `json:"expect,omitempty"`
 	IntervalSeconds int              `json:"interval_seconds"`
 	Edges           []statusEdgeJSON `json:"edges"`
 }
@@ -105,7 +106,7 @@ func (s *Server) status(w http.ResponseWriter, r *http.Request, _ caller) {
 		if rows == nil {
 			rows = []statusEdgeJSON{}
 		}
-		out = append(out, statusCheckJSON{ID: c.ID, Kind: c.Kind, Target: c.Target, IntervalSeconds: c.IntervalSeconds, Edges: rows})
+		out = append(out, statusCheckJSON{ID: c.ID, Kind: c.Kind, Target: c.Target, Expect: c.Expect, IntervalSeconds: c.IntervalSeconds, Edges: rows})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"window_seconds": int(statusWindow.Seconds()), "checks": out})
 }

@@ -6,9 +6,11 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"strings"
 	"text/tabwriter"
 
 	"github.com/Arylite/netprobe/internal/api"
+	"github.com/Arylite/netprobe/internal/probe"
 )
 
 func checkCommand(args []string, out io.Writer) error {
@@ -30,14 +32,18 @@ func checkAdd(args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("check add", flag.ContinueOnError)
 	databaseURL := databaseFlag(fs)
 	id := fs.String("id", "", "identifier of the check")
-	kind := fs.String("kind", "", "tcp or http")
-	target := fs.String("target", "", "host:port for tcp, a URL for http")
+	kind := fs.String("kind", "", strings.Join(api.Kinds, ", "))
+	target := fs.String("target", "", "what to measure: host:port, a URL, a name, a host (see the guide on checks)")
+	expect := fs.String("expect", "", "what a good answer is, for the kinds that take one")
 	interval := fs.Int("interval", 30, "seconds between two runs")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	check := api.Check{ID: *id, Kind: *kind, Target: *target, IntervalSeconds: *interval}
+	check := api.Check{ID: *id, Kind: *kind, Target: *target, Expect: *expect, IntervalSeconds: *interval}
 	if err := check.Validate(); err != nil {
+		return err
+	}
+	if err := probe.Validate(check); err != nil {
 		return err
 	}
 	st, err := openStore(context.Background(), *databaseURL)

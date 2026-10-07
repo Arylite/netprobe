@@ -45,8 +45,9 @@ func TestCheckCommandsRefuseBadInput(t *testing.T) {
 	t.Setenv("NETPROBE_DATABASE_URL", "")
 	for name, args := range map[string][]string{
 		"no id":         {"check", "add", "--database-url", url, "--kind", "tcp", "--target", "a:1"},
-		"bad kind":      {"check", "add", "--database-url", url, "--id", "x", "--kind", "icmp", "--target", "a:1"},
+		"bad kind":      {"check", "add", "--database-url", url, "--id", "x", "--kind", "carrier-pigeon", "--target", "a:1"},
 		"no target":     {"check", "add", "--database-url", url, "--id", "x", "--kind", "tcp"},
+		"bad expect":    {"check", "add", "--database-url", url, "--id", "x", "--kind", "tls", "--target", "a", "--expect", "soon", "--interval", "60"},
 		"zero interval": {"check", "add", "--database-url", url, "--id", "x", "--kind", "tcp", "--target", "a:1", "--interval", "0"},
 		"remove no id":  {"check", "remove", "--database-url", url},
 		"unknown":       {"check", "frobnicate"},

@@ -18,7 +18,7 @@ func TestChecks(t *testing.T) {
 	if got, err := s.ListChecks(ctx); err != nil || got == nil || len(got) != 0 {
 		t.Fatalf("empty list: %v, %v", got, err)
 	}
-	b := api.Check{ID: "b", Kind: api.KindHTTP, Target: "https://example.com", IntervalSeconds: 30}
+	b := api.Check{ID: "b", Kind: api.KindHTTP, Target: "https://example.com", Expect: "200;contains:ok", IntervalSeconds: 30}
 	a := api.Check{ID: "a", Kind: api.KindTCP, Target: "example.com:22", IntervalSeconds: 10}
 	for _, c := range []api.Check{b, a} {
 		if err := s.AddCheck(ctx, c); err != nil {

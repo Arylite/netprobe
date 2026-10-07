@@ -2,7 +2,6 @@ package edge
 
 import (
 	"context"
-	"fmt"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -14,19 +13,11 @@ import (
 // Measurer runs one check and describes the outcome.
 type Measurer func(ctx context.Context, c api.Check) api.Result
 
-// ProbeMeasurer maps the kinds of check to the probes.
+// ProbeMeasurer runs each check with the probe of its kind.
 func ProbeMeasurer(p *probe.Prober) Measurer {
 	return func(ctx context.Context, c api.Check) api.Result {
 		at := time.Now().UTC()
-		var o probe.Outcome
-		switch c.Kind {
-		case api.KindTCP:
-			o = p.TCP(ctx, c.Target)
-		case api.KindHTTP:
-			o = p.HTTP(ctx, c.Target)
-		default:
-			o = probe.Outcome{Err: fmt.Sprintf("unsupported check kind %q", c.Kind)}
-		}
+		o := p.Run(ctx, c)
 		return api.Result{
 			CheckID:   c.ID,
 			At:        at,

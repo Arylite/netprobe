@@ -173,7 +173,7 @@ func TestResultsOfAnInterruptedMeasurementAreDropped(t *testing.T) {
 func TestProbeMeasurer(t *testing.T) {
 	m := ProbeMeasurer(probe.New(probe.Policy{}, time.Second))
 
-	res := m(context.Background(), api.Check{ID: "x", Kind: "dns", Target: "example.com", IntervalSeconds: 1})
+	res := m(context.Background(), api.Check{ID: "x", Kind: "carrier-pigeon", Target: "example.com", IntervalSeconds: 1})
 	if res.OK || !strings.Contains(res.Error, "unsupported") || res.CheckID != "x" || res.At.IsZero() {
 		t.Fatalf("unsupported kind: %+v", res)
 	}

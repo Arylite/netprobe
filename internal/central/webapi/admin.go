@@ -8,6 +8,7 @@ import (
 	"github.com/Arylite/netprobe/internal/central/auth"
 	"github.com/Arylite/netprobe/internal/central/store"
 	"github.com/Arylite/netprobe/internal/logsafe"
+	"github.com/Arylite/netprobe/internal/probe"
 )
 
 type createEdgeRequest struct {
@@ -96,6 +97,10 @@ func (s *Server) createCheck(w http.ResponseWriter, r *http.Request, c caller) {
 		return
 	}
 	if err := check.Validate(); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := probe.Validate(check); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}

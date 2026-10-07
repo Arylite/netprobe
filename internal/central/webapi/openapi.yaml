@@ -482,8 +482,9 @@ components:
       required: [id, kind, target, interval_seconds]
       properties:
         id: { type: string }
-        kind: { type: string, enum: [tcp, http] }
-        target: { type: string, description: "host:port for tcp, a URL for http." }
+        kind: { type: string, enum: [tcp, http, dns, tls, icmp, ntp, banner, closed, download, traceroute, domain] }
+        target: { type: string, maxLength: 512, description: "What to measure; its form depends on the kind: host:port, a URL, a name, a host." }
+        expect: { type: string, maxLength: 256, description: "What a good answer is, for the kinds that take one." }
         interval_seconds: { type: integer, minimum: 1 }
     Result:
       type: object
@@ -499,8 +500,9 @@ components:
       required: [id, kind, target, interval_seconds, edges]
       properties:
         id: { type: string }
-        kind: { type: string, enum: [tcp, http] }
+        kind: { type: string, enum: [tcp, http, dns, tls, icmp, ntp, banner, closed, download, traceroute, domain] }
         target: { type: string }
+        expect: { type: string }
         interval_seconds: { type: integer }
         edges:
           type: array

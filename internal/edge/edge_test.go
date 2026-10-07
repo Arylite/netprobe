@@ -74,6 +74,18 @@ func TestAssignmentsRefuseInvalidChecks(t *testing.T) {
 	}
 }
 
+func TestAssignmentsKeepChecksOfAnUnknownKind(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, `{"checks":[{"id":"a","kind":"from-the-future","target":"x","interval_seconds":5},{"id":"b","kind":"tcp","target":"h:1","interval_seconds":5}]}`)
+	}))
+	defer ts.Close()
+	c, _ := NewClient(ts.URL, "")
+	checks, _, err := c.Assignments(context.Background())
+	if err != nil || len(checks) != 2 {
+		t.Fatalf("checks %+v, err %v", checks, err)
+	}
+}
+
 func TestPostResultsErrors(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, "no", http.StatusBadRequest)

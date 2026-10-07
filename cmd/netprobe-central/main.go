@@ -17,7 +17,7 @@ commands:
   edge add --name NAME     register an edge and print its token (shown once)
   edge list                list the edges
   edge revoke --name NAME  cut an edge off
-  check add --id ID --kind tcp|http --target T [--interval SECONDS]
+  check add --id ID --kind KIND --target T [--expect E] [--interval SECONDS]
                            assign a check to every edge
   check list               list the checks
   check remove --id ID     stop assigning a check (its results are kept)
