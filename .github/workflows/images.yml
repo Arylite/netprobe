@@ -1,6 +1,6 @@
 name: Images
 
-# Builds the four images and refuses one that has a known vulnerability with a
+# Builds the five images and refuses one that has a known vulnerability with a
 # fix. With push, it also publishes them for amd64 and arm64, with their build
 # provenance and a bill of materials.
 
@@ -26,6 +26,7 @@ jobs:
           - { name: edge, context: ., target: edge }
           - { name: web, context: ., target: web }
           - { name: db, context: deploy/db, target: "" }
+          - { name: renderer, context: deploy/renderer, target: "" }
     env:
       IMAGE: ghcr.io/arylite/netprobe-${{ matrix.name }}
       VERSION: ${{ github.ref_type == 'tag' && github.ref_name || github.sha }}

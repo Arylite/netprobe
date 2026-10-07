@@ -39,7 +39,7 @@ sides have a `doctor` command.
 | | |
 |---|---|
 | **Binaries** | `netprobe-central`, `netprobe-edge`, for linux (amd64, arm64), macOS (arm64), windows (amd64) |
-| **Images** | `central`, `edge`, `web`, `db`, for amd64 and arm64, scanned before they are published |
+| **Images** | `central`, `edge`, `web`, `db`, `renderer`, for amd64 and arm64, scanned before they are published |
 | **Checks** | TCP connect and HTTP request, every second at best |
 | **Storage** | PostgreSQL with TimescaleDB: compressed after 7 days, kept as long as you say |
 | **Alerts** | incidents from failing checks and silent edges, signed webhooks |
@@ -145,12 +145,15 @@ Dependencies go one way: `cmd` -> `edge` or `central` -> `api` and `probe`.
 ## Docker
 
 `Dockerfile` builds three images, `central`, `edge` and `web`, from distroless
-(Go) and unprivileged nginx (UI); `deploy/db` is TimescaleDB without the Go tools
-of its image, which the central does not use and whose Go runtime carries known
-vulnerabilities. Every image runs as a user without privileges, and every base
-is pinned by digest.
+(Go) and unprivileged nginx (UI). Two more start from the images of others, and
+fix what is wrong with them: `deploy/db` is TimescaleDB without the Go tools of its
+image, which the central does not use and whose Go runtime carries known
+vulnerabilities, and `deploy/renderer` is the image renderer of Grafana with the
+security updates of its Chromium. Every image runs as a user without privileges,
+and every base is pinned by digest.
 
-`compose.yaml` runs the central, its database, the web UI, Grafana and a Caddy proxy:
+`compose.yaml` runs the central, its database, the web UI, Grafana (with its image
+renderer) and a Caddy proxy:
 
 - Only the proxy publishes ports (80 and 443). It serves the UI at `/`, the UI API
   at `/api/` and the edge API at `/v1/` and `/healthz`, all on one name, so the UI
@@ -167,6 +170,9 @@ is pinned by digest.
   only read the results, and comes with three dashboards. Its administrator is
   `admin`; the password is made at the first start:
   `docker compose exec grafana cat /grafana-secrets/grafana_admin_password`.
+  Its renderer makes the PNG of a panel or of a dashboard, for example
+  `/render/d-solo/netprobe-overview/_?panelId=7&width=1000&height=450` (see
+  `docs/grafana.md`); it is on a network shared with Grafana alone, and has no way out.
 
 Settings go in a `.env` file (see `.env.example`). For a real name, set
 `NETPROBE_DOMAIN` and `NETPROBE_PUBLIC_URL`: the proxy gets a certificate from Let's
@@ -200,7 +206,7 @@ docker compose cp proxy:/data/caddy/pki/authorities/local/root.crt ./root.crt
 To upgrade, `docker compose pull && docker compose up -d` for a release, or
 `docker compose up -d --build` from the source. The central migrates the schema
 and updates the TimescaleDB extension when it starts. Images are published to
-`ghcr.io/arylite/netprobe-{central,edge,web,db}`, for amd64 and arm64.
+`ghcr.io/arylite/netprobe-{central,edge,web,db,renderer}`, for amd64 and arm64.
 
 ## When something does not work
 

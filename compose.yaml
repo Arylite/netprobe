@@ -196,7 +196,8 @@ services:
   # shared with Grafana alone, and only Grafana, with the token, may ask it.
   renderer:
     <<: *hardened
-    image: grafana/grafana-image-renderer:v5.12.5@sha256:76542ccc4c045e5ff9f80f87b25de6fcc71b31222172de5031a8ceba33772ee1
+    build: {context: deploy/renderer}
+    image: ghcr.io/arylite/netprobe-renderer:${NETPROBE_VERSION:-latest}
     # The token is read from its file into the environment of the process only.
     entrypoint:
       - sh
