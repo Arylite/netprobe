@@ -37,6 +37,7 @@ type serveConfig struct {
 
 	trustedProxies []string
 	webhookDeny    string
+	grafanaRole    string
 
 	edgeTLSCert, edgeTLSKey, edgeClientCA string
 	apiTLSCert, apiTLSKey                 string
@@ -80,6 +81,12 @@ func run(cfg serveConfig) error {
 	defer st.Close()
 	if err := st.SetRetention(ctx, cfg.retention); err != nil {
 		return err
+	}
+	if cfg.grafanaRole != "" {
+		// The role may not exist yet: that is for the person to fix, not a reason not to start.
+		if err := st.GrantReadOnly(ctx, cfg.grafanaRole); err != nil {
+			log.Warn("the dashboard role has no read access yet", "role", cfg.grafanaRole, "err", err)
+		}
 	}
 	policy, err := probe.ParseDeny(cfg.webhookDeny)
 	if err != nil {

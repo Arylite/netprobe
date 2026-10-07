@@ -56,6 +56,7 @@ func serve(args []string) error {
 	fs.StringVar(&cfg.apiTLSCert, "api-tls-cert", cli.Getenv("NETPROBE_API_TLS_CERT", ""), "certificate file (PEM) to serve the UI API over TLS 1.3 (NETPROBE_API_TLS_CERT)")
 	fs.StringVar(&cfg.apiTLSKey, "api-tls-key", cli.Getenv("NETPROBE_API_TLS_KEY", ""), "private key file of that certificate (NETPROBE_API_TLS_KEY)")
 	fs.DurationVar(&cfg.auditRetention, "audit-retention", auditDefault, "how long the audit trail is kept, 0 for ever (NETPROBE_AUDIT_RETENTION)")
+	fs.StringVar(&cfg.grafanaRole, "grafana-role", cli.Getenv("NETPROBE_GRAFANA_ROLE", ""), "database role that dashboards read with: it is given read access to the results, checks, incidents and the names of edges (NETPROBE_GRAFANA_ROLE)")
 	fs.IntVar(&cfg.alertFailures, "alert-failures", failuresDefault, "failures in a row that open an incident for a check on an edge (NETPROBE_ALERT_FAILURES)")
 	fs.DurationVar(&cfg.edgeSilence, "edge-silence", silenceDefault, "how long an edge may go without a result before it is reported (NETPROBE_EDGE_SILENCE)")
 	fs.DurationVar(&cfg.alertInterval, "alert-interval", alertIntervalDefault, "how often results are evaluated and notifications sent (NETPROBE_ALERT_INTERVAL)")
