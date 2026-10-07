@@ -3,11 +3,11 @@ name: CI
 # What runs, and in which order. The work itself lives in the reusable
 # workflows next to this file.
 #
-#   lint ---+
-#   test ---+--> build --+
-#   vuln ---+            +--> ci (the one check to require)
-#   web  ----------------+
-#   images ---------------+
+#   lint   ---+
+#   test   ---+--> build --+
+#   vuln   ---+            +--> ci (the one check to require)
+#   web    ----------------+
+#   images ----------------+
 
 on:
   push:
