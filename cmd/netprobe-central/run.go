@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/Arylite/netprobe/internal/central"
+	"github.com/Arylite/netprobe/internal/central/alert"
 	"github.com/Arylite/netprobe/internal/central/store"
 	"github.com/Arylite/netprobe/internal/central/webapi"
 	"github.com/Arylite/netprobe/internal/cli"
@@ -30,6 +31,12 @@ type serveConfig struct {
 	corsOrigins []string
 	sessionTTL  time.Duration
 	level       string
+
+	alertFailures int
+	edgeSilence   time.Duration
+	alertInterval time.Duration
+	// retention is how long results are kept; zero keeps them for ever.
+	retention time.Duration
 }
 
 // surface is one thing the central serves, on its own address.
@@ -50,6 +57,9 @@ func run(cfg serveConfig) error {
 	if err != nil {
 		return err
 	}
+	if cfg.retention < 0 {
+		return errors.New("--retention must not be negative")
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -58,6 +68,13 @@ func run(cfg serveConfig) error {
 		return err
 	}
 	defer st.Close()
+	if err := st.SetRetention(ctx, cfg.retention); err != nil {
+		return err
+	}
+	engine, err := alert.New(log, st, alert.Config{Failures: cfg.alertFailures, Silence: cfg.edgeSilence, Interval: cfg.alertInterval})
+	if err != nil {
+		return err
+	}
 	warnAboutSetup(ctx, log, st, cfg)
 
 	ui, err := webapi.New(log, st, webapi.Config{AllowedOrigins: cfg.corsOrigins, SessionTTL: cfg.sessionTTL})
@@ -89,6 +106,16 @@ func run(cfg serveConfig) error {
 		go func() { errc <- s.srv.Serve(listeners[i]) }()
 	}
 	go purgeSessions(ctx, log, st)
+	engineDone := make(chan struct{})
+	go func() {
+		defer close(engineDone)
+		engine.Run(ctx)
+	}()
+	// Runs before the store closes: the engine must be done with it.
+	defer func() {
+		stop()
+		<-engineDone
+	}()
 
 	select {
 	case err := <-errc:
@@ -122,6 +149,14 @@ func warnAboutSetup(ctx context.Context, log *slog.Logger, st *store.Store, cfg 
 	}
 	if users, err := st.ListUsers(ctx); err == nil && len(users) == 0 {
 		log.Warn("no user exists, nobody can sign in to the UI: run 'netprobe-central user add --username NAME --role admin'")
+	}
+	if channels, err := st.ListChannels(ctx); err == nil && len(channels) == 0 {
+		log.Warn("no notification channel exists, incidents are recorded but nobody is told: add one from the UI or with 'netprobe-central channel add'")
+	}
+	if cfg.retention > 0 {
+		log.Info("results are dropped after", "retention", cfg.retention.String())
+	} else {
+		log.Info("results are kept for ever: set --retention to drop the old ones")
 	}
 	for _, s := range []struct{ name, addr string }{{"edge API", cfg.edgeListen}, {"UI API", cfg.apiListen}} {
 		if !isLoopback(s.addr) {

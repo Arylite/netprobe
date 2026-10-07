@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strconv"
 	"time"
 )
 
@@ -23,6 +24,20 @@ func NewLogger(level string) (*slog.Logger, error) {
 		return nil, fmt.Errorf("log level %q: want debug, info, warn or error", level)
 	}
 	return slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: l})), nil
+}
+
+// GetenvInt returns the variable parsed as an integer, or fallback when it is
+// unset or empty.
+func GetenvInt(key string, fallback int) (int, error) {
+	v := os.Getenv(key)
+	if v == "" {
+		return fallback, nil
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		return 0, fmt.Errorf("%s: %q is not an integer", key, v)
+	}
+	return n, nil
 }
 
 // GetenvDuration returns the variable parsed as a duration, or fallback when

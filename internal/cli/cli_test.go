@@ -43,3 +43,17 @@ func TestGetenvDuration(t *testing.T) {
 		t.Fatal("accepted a malformed duration")
 	}
 }
+
+func TestGetenvInt(t *testing.T) {
+	t.Setenv("NETPROBE_TEST_INT", "7")
+	if got, err := GetenvInt("NETPROBE_TEST_INT", 1); err != nil || got != 7 {
+		t.Fatalf("set: %v, %v", got, err)
+	}
+	if got, err := GetenvInt("NETPROBE_TEST_INT_UNSET", 3); err != nil || got != 3 {
+		t.Fatalf("unset: %v, %v", got, err)
+	}
+	t.Setenv("NETPROBE_TEST_INT", "many")
+	if _, err := GetenvInt("NETPROBE_TEST_INT", 1); err == nil {
+		t.Fatal("accepted a malformed integer")
+	}
+}
