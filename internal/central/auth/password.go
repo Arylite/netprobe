@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"golang.org/x/crypto/argon2"
 )
@@ -22,7 +23,37 @@ const (
 	saltLength = 16
 	keyLength  = 32
 	maxMemory  = 1 << 20 // KiB: refuse a stored hash that asks for more than 1 GiB
+
+	// maxConcurrentHashes caps the passwords hashed at the same time. Each one
+	// takes 64 MiB, and a login is something anyone can ask for: without a cap,
+	// a handful of simultaneous requests would use all the memory of the server.
+	maxConcurrentHashes = 4
+	// hashWait is how long a request waits for its turn before it is refused.
+	hashWait = 10 * time.Second
 )
+
+// ErrBusy is returned when too many passwords are being hashed at once.
+var ErrBusy = errors.New("too many passwords are being checked at once")
+
+var hashSlots = make(chan struct{}, maxConcurrentHashes)
+
+// acquire waits for a turn to hash a password, and returns how to give it back.
+func acquire() (release func(), err error) {
+	release = func() { <-hashSlots }
+	select {
+	case hashSlots <- struct{}{}:
+		return release, nil
+	default:
+	}
+	timer := time.NewTimer(hashWait)
+	defer timer.Stop()
+	select {
+	case hashSlots <- struct{}{}:
+		return release, nil
+	case <-timer.C:
+		return nil, ErrBusy
+	}
+}
 
 type argonParams struct {
 	memory  uint32 // KiB
@@ -46,6 +77,9 @@ func ValidatePassword(username, password string) error {
 	case strings.EqualFold(password, username):
 		return errors.New("the password must differ from the username")
 	}
+	if why := weak(password); why != "" {
+		return errors.New(why)
+	}
 	return nil
 }
 
@@ -55,6 +89,11 @@ func HashPassword(password string) (string, error) {
 	if _, err := rand.Read(salt); err != nil {
 		return "", fmt.Errorf("generate salt: %w", err)
 	}
+	release, err := acquire()
+	if err != nil {
+		return "", err
+	}
+	defer release()
 	p := hashParams
 	key := argon2.IDKey([]byte(password), salt, p.time, p.memory, p.threads, keyLength)
 	return fmt.Sprintf("$argon2id$v=%d$m=%d,t=%d,p=%d$%s$%s",
@@ -88,6 +127,11 @@ func VerifyPassword(password, encoded string) (bool, error) {
 	if err != nil || len(want) == 0 {
 		return false, errors.New("malformed hash")
 	}
+	release, err := acquire()
+	if err != nil {
+		return false, err
+	}
+	defer release()
 	got := argon2.IDKey([]byte(password), salt, p.time, p.memory, p.threads, uint32(len(want)))
 	return subtle.ConstantTimeCompare(got, want) == 1, nil
 }

@@ -16,6 +16,7 @@ import (
 
 	"github.com/Arylite/netprobe/internal/central"
 	"github.com/Arylite/netprobe/internal/central/alert"
+	"github.com/Arylite/netprobe/internal/central/auth"
 	"github.com/Arylite/netprobe/internal/central/store"
 	"github.com/Arylite/netprobe/internal/central/webapi"
 	"github.com/Arylite/netprobe/internal/cli"
@@ -32,9 +33,10 @@ type serveConfig struct {
 	sessionTTL  time.Duration
 	level       string
 
-	alertFailures int
-	edgeSilence   time.Duration
-	alertInterval time.Duration
+	trustedProxies []string
+	alertFailures  int
+	edgeSilence    time.Duration
+	alertInterval  time.Duration
 	// retention is how long results are kept; zero keeps them for ever.
 	retention time.Duration
 }
@@ -77,12 +79,16 @@ func run(cfg serveConfig) error {
 	}
 	warnAboutSetup(ctx, log, st, cfg)
 
-	ui, err := webapi.New(log, st, webapi.Config{AllowedOrigins: cfg.corsOrigins, SessionTTL: cfg.sessionTTL})
+	proxies, err := auth.ParseProxies(cfg.trustedProxies)
+	if err != nil {
+		return err
+	}
+	ui, err := webapi.New(log, st, webapi.Config{AllowedOrigins: cfg.corsOrigins, SessionTTL: cfg.sessionTTL, TrustedProxies: proxies})
 	if err != nil {
 		return err
 	}
 	surfaces := []surface{
-		{name: "edge API", addr: cfg.edgeListen, srv: newServer(central.New(log, st).Handler())},
+		{name: "edge API", addr: cfg.edgeListen, srv: newServer(central.New(log, st, central.WithProxies(proxies)).Handler())},
 		{name: "UI API", addr: cfg.apiListen, srv: newServer(ui.Handler())},
 	}
 

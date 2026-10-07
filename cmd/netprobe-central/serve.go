@@ -34,12 +34,13 @@ func serve(args []string) error {
 		return err
 	}
 	var cfg serveConfig
-	var origins string
+	var origins, proxies string
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	fs.StringVar(&cfg.edgeListen, "edge-listen", cli.Getenv("NETPROBE_EDGE_LISTEN", "127.0.0.1:8080"), "address of the edge API, where edges poll and report (NETPROBE_EDGE_LISTEN)")
 	fs.StringVar(&cfg.apiListen, "api-listen", cli.Getenv("NETPROBE_API_LISTEN", "127.0.0.1:8081"), "address of the UI API, where the web UI signs in and reads (NETPROBE_API_LISTEN)")
 	fs.StringVar(&origins, "cors-origins", cli.Getenv("NETPROBE_CORS_ORIGINS", ""), "web origins allowed to call the UI API from a browser, scheme://host[:port] separated by commas; none by default (NETPROBE_CORS_ORIGINS)")
 	fs.DurationVar(&cfg.sessionTTL, "session-ttl", ttlDefault, "how long a UI login lasts (NETPROBE_SESSION_TTL)")
+	fs.StringVar(&proxies, "trusted-proxies", cli.Getenv("NETPROBE_TRUSTED_PROXIES", ""), "reverse proxies trusted to say who the client is, addresses or CIDR ranges separated by commas; none by default (NETPROBE_TRUSTED_PROXIES)")
 	fs.IntVar(&cfg.alertFailures, "alert-failures", failuresDefault, "failures in a row that open an incident for a check on an edge (NETPROBE_ALERT_FAILURES)")
 	fs.DurationVar(&cfg.edgeSilence, "edge-silence", silenceDefault, "how long an edge may go without a result before it is reported (NETPROBE_EDGE_SILENCE)")
 	fs.DurationVar(&cfg.alertInterval, "alert-interval", alertIntervalDefault, "how often results are evaluated and notifications sent (NETPROBE_ALERT_INTERVAL)")
@@ -51,6 +52,7 @@ func serve(args []string) error {
 	}
 	cfg.databaseURL = *databaseURL
 	cfg.corsOrigins = splitList(origins)
+	cfg.trustedProxies = splitList(proxies)
 	return run(cfg)
 }
 

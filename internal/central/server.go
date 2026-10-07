@@ -18,13 +18,24 @@ const maxBodyBytes = 1 << 20
 // Server is the edge API. Edges authenticate with the token the store issued
 // them; checks and results live in the store.
 type Server struct {
-	log   *slog.Logger
-	store *store.Store
+	log     *slog.Logger
+	store   *store.Store
+	proxies auth.Proxies
 }
 
+// Option changes how the edge API is built.
+type Option func(*Server)
+
+// WithProxies names the reverse proxies trusted to say who the client is.
+func WithProxies(p auth.Proxies) Option { return func(s *Server) { s.proxies = p } }
+
 // New builds the edge API on top of a store.
-func New(log *slog.Logger, st *store.Store) *Server {
-	return &Server{log: log, store: st}
+func New(log *slog.Logger, st *store.Store, opts ...Option) *Server {
+	s := &Server{log: log, store: st}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
 }
 
 // Handler serves the edge API.
@@ -58,7 +69,7 @@ func (s *Server) authenticated(next func(http.ResponseWriter, *http.Request, sto
 			}
 		}
 		if !ok {
-			s.log.Debug("unauthorized request", "path", r.URL.Path, "client_ip", auth.PeerHost(r))
+			s.log.Debug("unauthorized request", "path", r.URL.Path, "client_ip", s.proxies.ClientIP(r))
 			w.Header().Set("WWW-Authenticate", "Bearer")
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return

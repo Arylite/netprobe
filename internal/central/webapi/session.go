@@ -51,7 +51,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request, _ caller) {
 		return
 	}
 
-	ip := auth.PeerHost(r)
+	ip := s.proxies.ClientIP(r)
 	pair := req.Username + "|" + ip
 	if s.byIP.Blocked(ip) || s.byUserIP.Blocked(pair) {
 		w.Header().Set("Retry-After", "600")
@@ -70,6 +70,10 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request, _ caller) {
 		return
 	}
 	ok, err := auth.VerifyPassword(req.Password, hash)
+	if errors.Is(err, auth.ErrBusy) {
+		s.unavailable(w, "login", err)
+		return
+	}
 	if err != nil {
 		s.log.Error("stored password hash is unusable", "op", "login", "err", err)
 		writeError(w, http.StatusInternalServerError, "internal error")

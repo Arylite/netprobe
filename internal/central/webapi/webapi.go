@@ -29,6 +29,10 @@ type Config struct {
 	// Sender delivers the test notifications of a channel; nil posts to its
 	// webhook.
 	Sender alert.Sender
+	// TrustedProxies are the reverse proxies trusted to say who the client is.
+	// Without them a failed login is counted against the address of the proxy,
+	// and every user would be locked out together.
+	TrustedProxies auth.Proxies
 }
 
 // Server is the JSON API of the web UI. It authenticates with bearer tokens:
@@ -39,6 +43,7 @@ type Server struct {
 	origins map[string]bool
 	ttl     time.Duration
 	sender  alert.Sender
+	proxies auth.Proxies
 
 	byIP     *auth.Limiter
 	byUserIP *auth.Limiter
@@ -68,6 +73,7 @@ func New(log *slog.Logger, st *store.Store, cfg Config) (*Server, error) {
 		origins:  set,
 		ttl:      ttl,
 		sender:   sender,
+		proxies:  cfg.TrustedProxies,
 		byIP:     auth.NewLimiter(maxByIP, failureWindow),
 		byUserIP: auth.NewLimiter(maxByUserIP, failureWindow),
 	}, nil

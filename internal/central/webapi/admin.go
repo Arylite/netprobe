@@ -182,7 +182,7 @@ func (s *Server) changePassword(w http.ResponseWriter, r *http.Request, c caller
 		writeError(w, http.StatusBadRequest, "the current password is too long")
 		return
 	}
-	ip := auth.PeerHost(r)
+	ip := s.proxies.ClientIP(r)
 	pair := c.user.Username + "|" + ip
 	if s.byUserIP.Blocked(pair) {
 		w.Header().Set("Retry-After", "600")
@@ -195,6 +195,10 @@ func (s *Server) changePassword(w http.ResponseWriter, r *http.Request, c caller
 		return
 	}
 	ok, err := auth.VerifyPassword(req.CurrentPassword, hash)
+	if errors.Is(err, auth.ErrBusy) {
+		s.unavailable(w, "change password", err)
+		return
+	}
 	if err != nil {
 		s.log.Error("stored password hash is unusable", "op", "change password", "err", err)
 		writeError(w, http.StatusInternalServerError, "internal error")
