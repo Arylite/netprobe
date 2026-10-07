@@ -7,6 +7,17 @@ import { unwrap } from "./client";
 // while the page is up shows without a reload.
 const REFRESH_MS = 15_000;
 
+/** Whether the central still waits for its first account. Asked before anyone signs in. */
+export function useSetupStatus() {
+  const { api } = useSession();
+  return useQuery({
+    queryKey: ["setup"],
+    queryFn: async () => (await unwrap(api.GET("/api/v1/setup"))).required,
+    staleTime: 0,
+    retry: false,
+  });
+}
+
 export function useStatus() {
   const { api } = useSession();
   return useQuery({
@@ -51,9 +62,10 @@ export function useResults(checkId: string, limit: number) {
   });
 }
 
-export function useChannels() {
+export function useChannels(enabled = true) {
   const { api } = useSession();
   return useQuery({
+    enabled,
     queryKey: ["channels"],
     queryFn: async () => (await unwrap(api.GET("/api/v1/channels"))).channels,
   });

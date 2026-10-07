@@ -20,11 +20,13 @@ import { Edges } from "./pages/Edges";
 import { Incidents } from "./pages/Incidents";
 import { Login } from "./pages/Login";
 import { Overview } from "./pages/Overview";
+import { Setup } from "./pages/Setup";
 import { Users } from "./pages/Users";
 import { theme } from "./theme";
 
 export const routes: RouteObject[] = [
   { path: "/login", element: <Login /> },
+  { path: "/setup", element: <Setup /> },
   {
     element: <RequireSession />,
     children: [

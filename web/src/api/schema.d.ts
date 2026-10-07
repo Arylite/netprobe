@@ -38,6 +38,79 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/setup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Whether the central still waits for its first account */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The state of the setup. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SetupStatus"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        /**
+         * Create the first administrator
+         * @description Works once, while no account exists. It needs the setup code that the central writes to its log at start. Ten wrong codes, from anyone, close it for 15 minutes (429). It answers a session, like login.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["SetupRequest"];
+                };
+            };
+            responses: {
+                /** @description The administrator, signed in. */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Session"];
+                    };
+                };
+                400: components["responses"]["BadRequest"];
+                /** @description The setup code is wrong. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                409: components["responses"]["Conflict"];
+                429: components["responses"]["TooManyRequests"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/login": {
         parameters: {
             query?: never;
@@ -839,6 +912,16 @@ export interface components {
     schemas: {
         Error: {
             error: string;
+        };
+        SetupStatus: {
+            /** @description True while no account exists. */
+            required: boolean;
+        };
+        SetupRequest: {
+            /** @description The six digit code in the log of the central. */
+            code: string;
+            username: string;
+            password: string;
         };
         LoginRequest: {
             username: string;

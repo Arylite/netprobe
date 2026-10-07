@@ -1,10 +1,11 @@
-import { Box, Button, Center, Group, Paper, PasswordInput, Stack, Text, TextInput, Title } from "@mantine/core";
+import { Box, Button, Center, Group, Loader, Paper, PasswordInput, Stack, Text, TextInput, Title } from "@mantine/core";
 import { useForm } from "@mantine/form";
 import { IconLogin, IconRadar2 } from "@tabler/icons-react";
 import { useState } from "react";
 import { Navigate, useLocation } from "react-router";
 
 import { errorText } from "../api/client";
+import { useSetupStatus } from "../api/queries";
 import { useSession } from "../auth/session";
 import { ColorSchemeSwitch } from "../components/Layout";
 import { pageBackground } from "../theme";
@@ -19,6 +20,7 @@ function destination(state: unknown): string {
 export function Login() {
   const { user, login, notice } = useSession();
   const location = useLocation();
+  const setupStatus = useSetupStatus();
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const form = useForm({
@@ -31,6 +33,15 @@ export function Login() {
   });
 
   if (user) return <Navigate to={destination(location.state)} replace />;
+  // A central with no account has nobody to sign in: it starts with the setup.
+  if (setupStatus.data) return <Navigate to="/setup" replace />;
+  if (setupStatus.isPending) {
+    return (
+      <Center mih="100vh" style={{ background: pageBackground }}>
+        <Loader aria-label="Loading" />
+      </Center>
+    );
+  }
 
   const submit = form.onSubmit(async ({ username, password }) => {
     setBusy(true);

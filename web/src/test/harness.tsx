@@ -58,6 +58,7 @@ export function renderApp(central: ReturnType<typeof mockCentral>, path = "/") {
 
 /** The answers of the read endpoints, empty, for a test that is about something else. */
 export const quietCentral: Record<string, Answer> = {
+  "GET /api/v1/setup": { body: { required: false } },
   "GET /api/v1/status": { body: { window_seconds: 86400, checks: [] } },
   "GET /api/v1/incidents": { body: { incidents: [] } },
   "GET /api/v1/edges": { body: { edges: [] } },

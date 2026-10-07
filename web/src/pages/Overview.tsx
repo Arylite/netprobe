@@ -4,6 +4,7 @@ import { Link } from "react-router";
 
 import type { CheckStatus } from "../api/client";
 import { useEdges, useIncidents, useStatus } from "../api/queries";
+import { GettingStarted } from "../components/GettingStarted";
 import { DataTable, PageHeader, QueryState, StateBadge, Time } from "../components/ui";
 import { percent, rtt } from "../lib/format";
 import { subject } from "../lib/incident";
@@ -44,6 +45,7 @@ export function Overview() {
     <>
       <PageHeader title="Overview" description="How every check does, on each edge, over the last 24 hours." />
       <Stack gap="lg">
+        <GettingStarted />
         <SimpleGrid cols={{ base: 1, sm: 3 }}>
           <Figure label="Open incidents" value={incidents.data ? open.length : "-"} tone={open.length > 0 ? "red" : undefined} />
           <Figure label="Active edges" value={edges.data ? activeEdges : "-"} />

@@ -21,7 +21,7 @@ describe("signing in", () => {
     renderApp(central, "/login");
     const user = userEvent.setup();
 
-    await user.type(screen.getByLabelText("Username"), "alice");
+    await user.type(await screen.findByLabelText("Username"), "alice");
     await user.type(screen.getByLabelText("Password"), "a long admin password");
     await user.click(screen.getByRole("button", { name: "Sign in" }));
 
@@ -32,11 +32,14 @@ describe("signing in", () => {
   });
 
   it("says why it was refused and clears the password", async () => {
-    const central = mockCentral({ "POST /api/v1/login": { status: 401, body: { error: "invalid username or password" } } });
+    const central = mockCentral({
+      ...quietCentral,
+      "POST /api/v1/login": { status: 401, body: { error: "invalid username or password" } },
+    });
     renderApp(central, "/login");
     const user = userEvent.setup();
 
-    await user.type(screen.getByLabelText("Username"), "alice");
+    await user.type(await screen.findByLabelText("Username"), "alice");
     await user.type(screen.getByLabelText("Password"), "wrong");
     await user.click(screen.getByRole("button", { name: "Sign in" }));
 
@@ -46,11 +49,11 @@ describe("signing in", () => {
   });
 
   it("asks for both fields before it calls the central", async () => {
-    const central = mockCentral({});
+    const central = mockCentral(quietCentral);
     renderApp(central, "/login");
-    await userEvent.setup().click(screen.getByRole("button", { name: "Sign in" }));
+    await userEvent.setup().click(await screen.findByRole("button", { name: "Sign in" }));
     expect(await screen.findByText("Enter your username")).toBeInTheDocument();
-    expect(central.calls).toHaveLength(0);
+    expect(central.called("POST /api/v1/login")).toHaveLength(0);
   });
 
   it("goes back to the page that was asked for", async () => {
@@ -419,5 +422,128 @@ describe("the theme", () => {
 
     await user.click(screen.getByRole("button", { name: "Switch to the light theme" }));
     await waitFor(() => expect(document.documentElement).toHaveAttribute("data-mantine-color-scheme", "light"));
+  });
+});
+
+describe("the first start", () => {
+  const fresh = (extra: Record<string, unknown> = {}) =>
+    mockCentral({ ...quietCentral, "GET /api/v1/setup": { body: { required: true } }, ...extra } as Parameters<typeof mockCentral>[0]);
+
+  it("sends a visitor of a central without account to the setup, not to a login nobody can use", async () => {
+    renderApp(fresh(), "/edges");
+    expect(await screen.findByRole("heading", { name: "Welcome to netprobe" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Sign in" })).not.toBeInTheDocument();
+    expect(screen.getByText(/written in the log of the central/)).toBeInTheDocument();
+  });
+
+  it("creates the first administrator, signs them in and lands on the overview", async () => {
+    const central = fresh({
+      "POST /api/v1/setup": { status: 201, body: { token: "tok", expires_at: future(), user: admin } },
+    });
+    renderApp(central, "/setup");
+    const user = userEvent.setup();
+
+    await user.type(await screen.findByLabelText("Setup code"), "123 456");
+    await user.type(screen.getByLabelText("Username"), "alice");
+    await user.type(screen.getByLabelText("Password", { exact: true }), "an administrator password");
+    await user.type(screen.getByLabelText("Password, again"), "an administrator password");
+    await user.click(screen.getByRole("button", { name: "Create the account" }));
+
+    expect(await screen.findByRole("heading", { name: "Overview" })).toBeInTheDocument();
+    expect(central.called("POST /api/v1/setup")[0]?.body).toEqual({ code: "123 456", username: "alice", password: "an administrator password" });
+    expect(JSON.parse(sessionStorage.getItem("netprobe.session") ?? "{}").token).toBe("tok");
+  });
+
+  it("says when the code is wrong and keeps what was typed", async () => {
+    renderApp(fresh({ "POST /api/v1/setup": { status: 403, body: { error: "the setup code is wrong" } } }), "/setup");
+    const user = userEvent.setup();
+    await user.type(await screen.findByLabelText("Setup code"), "000000");
+    await user.type(screen.getByLabelText("Username"), "alice");
+    await user.type(screen.getByLabelText("Password", { exact: true }), "an administrator password");
+    await user.type(screen.getByLabelText("Password, again"), "an administrator password");
+    await user.click(screen.getByRole("button", { name: "Create the account" }));
+    expect(await screen.findByText("The setup code is wrong")).toBeInTheDocument();
+    expect(screen.getByLabelText("Username")).toHaveValue("alice");
+  });
+
+  it("checks the form before it calls the central", async () => {
+    const central = fresh();
+    renderApp(central, "/setup");
+    const user = userEvent.setup();
+    await user.type(await screen.findByLabelText("Setup code"), "12");
+    await user.type(screen.getByLabelText("Username"), "Alice Admin");
+    await user.type(screen.getByLabelText("Password", { exact: true }), "short");
+    await user.type(screen.getByLabelText("Password, again"), "different");
+    await user.click(screen.getByRole("button", { name: "Create the account" }));
+    expect(await screen.findByText("The code has six digits")).toBeInTheDocument();
+    expect(screen.getByText("12 to 128 characters")).toBeInTheDocument();
+    expect(screen.getByText("The two passwords differ")).toBeInTheDocument();
+    expect(central.called("POST /api/v1/setup")).toHaveLength(0);
+  });
+
+  it("has nothing to set up once an account exists", async () => {
+    renderApp(mockCentral(quietCentral), "/setup");
+    expect(await screen.findByRole("button", { name: "Sign in" })).toBeInTheDocument();
+  });
+
+  it("still shows the login when the central cannot say", async () => {
+    renderApp(mockCentral({ "GET /api/v1/setup": { status: 503, body: { error: "service unavailable" } } }), "/login");
+    expect(await screen.findByRole("button", { name: "Sign in" })).toBeInTheDocument();
+  });
+});
+
+describe("getting started", () => {
+  const edge = { id: "e1", name: "paris", created_at: ago(100) };
+  const check = { id: "web", kind: "http", target: "https://example.com", interval_seconds: 30 };
+  const channel = { name: "ops", url: "https://example.com/h", has_secret: false, created_at: ago(100) };
+
+  it("guides an administrator through the three steps of an empty central", async () => {
+    signedInAs(admin);
+    renderApp(mockCentral(quietCentral));
+    expect(await screen.findByRole("heading", { name: "Get started" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Add an edge/ })).toHaveAttribute("href", "/edges");
+    expect(screen.getByRole("link", { name: /Add a check/ })).toHaveAttribute("href", "/checks");
+    expect(screen.getByRole("link", { name: /Add a channel/ })).toHaveAttribute("href", "/channels");
+  });
+
+  it("ticks what is done and drops it from the actions", async () => {
+    signedInAs(admin);
+    renderApp(mockCentral({ ...quietCentral, "GET /api/v1/edges": { body: { edges: [edge] } } }));
+    expect(await screen.findByRole("heading", { name: "Get started" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /Add an edge/ })).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Done")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Add a check/ })).toBeInTheDocument();
+  });
+
+  it("goes away when everything is done", async () => {
+    signedInAs(admin);
+    renderApp(
+      mockCentral({
+        ...quietCentral,
+        "GET /api/v1/edges": { body: { edges: [edge] } },
+        "GET /api/v1/checks": { body: { checks: [check] } },
+        "GET /api/v1/channels": { body: { channels: [channel] } },
+      }),
+    );
+    await screen.findByRole("heading", { name: "Overview" });
+    await waitFor(() => expect(screen.getByText("Active edges").parentElement).toHaveTextContent("1"));
+    expect(screen.queryByRole("heading", { name: "Get started" })).not.toBeInTheDocument();
+  });
+
+  it("can be hidden, and stays hidden", async () => {
+    signedInAs(admin);
+    renderApp(mockCentral(quietCentral));
+    await userEvent.setup().click(await screen.findByRole("button", { name: "Hide the getting started guide" }));
+    expect(screen.queryByRole("heading", { name: "Get started" })).not.toBeInTheDocument();
+    expect(localStorage.getItem("netprobe.gettingStarted.hidden")).toBe("1");
+  });
+
+  it("is not for a viewer, who cannot do any of it", async () => {
+    signedInAs(viewer);
+    const central = mockCentral(quietCentral);
+    renderApp(central);
+    await screen.findByRole("heading", { name: "Overview" });
+    expect(screen.queryByRole("heading", { name: "Get started" })).not.toBeInTheDocument();
+    expect(central.called("GET /api/v1/channels")).toHaveLength(0);
   });
 });

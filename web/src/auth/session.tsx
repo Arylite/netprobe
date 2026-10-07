@@ -39,6 +39,8 @@ export interface SessionContext {
   /** Why the person is signed out, when it was not their doing. */
   notice: string | null;
   login: (username: string, password: string) => Promise<void>;
+  /** Creates the first administrator of a central that has no account, and signs them in. */
+  setup: (code: string, username: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   /** Forgets the session locally, for when the central already ended it. */
   endSession: (notice?: string) => void;
@@ -83,16 +85,23 @@ export function SessionProvider({ config, fetch: fetchImpl, children }: { config
     return () => clearTimeout(timer);
   }, [expiresAt, endSession]);
 
+  const start = useCallback((session: Session) => {
+    const next = { token: session.token, expiresAt: session.expires_at, user: session.user };
+    tokenRef.current = next.token;
+    write(next);
+    setNotice(null);
+    setStored(next);
+  }, []);
+
   const login = useCallback(
-    async (username: string, password: string) => {
-      const session: Session = await unwrap(api.POST("/api/v1/login", { body: { username, password } }));
-      const next = { token: session.token, expiresAt: session.expires_at, user: session.user };
-      tokenRef.current = next.token;
-      write(next);
-      setNotice(null);
-      setStored(next);
-    },
-    [api],
+    async (username: string, password: string) => start(await unwrap(api.POST("/api/v1/login", { body: { username, password } }))),
+    [api, start],
+  );
+
+  const setup = useCallback(
+    async (code: string, username: string, password: string) =>
+      start(await unwrap(api.POST("/api/v1/setup", { body: { code, username, password } }))),
+    [api, start],
   );
 
   const logout = useCallback(async () => {
@@ -105,8 +114,8 @@ export function SessionProvider({ config, fetch: fetchImpl, children }: { config
   }, [api, endSession]);
 
   const value = useMemo<SessionContext>(
-    () => ({ api, user: stored?.user ?? null, notice, login, logout, endSession }),
-    [api, stored, notice, login, logout, endSession],
+    () => ({ api, user: stored?.user ?? null, notice, login, setup, logout, endSession }),
+    [api, stored, notice, login, setup, logout, endSession],
   );
   return <Context.Provider value={value}>{children}</Context.Provider>;
 }
