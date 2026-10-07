@@ -19,6 +19,9 @@ const (
 
 const sessionTokenPrefix = "ns_"
 
+// maxSessions is how many sessions an account keeps: the next login ends the oldest.
+const maxSessions = 20
+
 var (
 	usernamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,63}$`)
 
@@ -211,10 +214,23 @@ func (s *Store) CreateSession(ctx context.Context, username string, ttl time.Dur
 	}
 	now := time.Now().UTC()
 	expires := now.Add(ttl)
-	_, err = s.pool.Exec(ctx,
-		`INSERT INTO sessions (token_hash, username, created_at, expires_at) VALUES ($1, $2, $3, $4)`,
-		hash(token), username, now, expires)
+	tx, err := s.pool.Begin(ctx)
 	if err != nil {
+		return "", time.Time{}, fmt.Errorf("create session: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO sessions (token_hash, username, created_at, expires_at) VALUES ($1, $2, $3, $4)`,
+		hash(token), username, now, expires); err != nil {
+		return "", time.Time{}, fmt.Errorf("create session: %w", err)
+	}
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM sessions WHERE username = $1 AND token_hash NOT IN
+		   (SELECT token_hash FROM sessions WHERE username = $1 ORDER BY created_at DESC, token_hash LIMIT $2)`,
+		username, maxSessions); err != nil {
+		return "", time.Time{}, fmt.Errorf("create session: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
 		return "", time.Time{}, fmt.Errorf("create session: %w", err)
 	}
 	return token, expires, nil

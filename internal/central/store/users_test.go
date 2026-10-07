@@ -177,3 +177,44 @@ func TestFirstAdminIsCreatedOnlyWhileThereIsNoAccount(t *testing.T) {
 		t.Fatalf("users: %+v", users)
 	}
 }
+
+func TestAnAccountKeepsAtMostTwentySessions(t *testing.T) {
+	s := storetest.Open(t)
+	ctx := context.Background()
+	if err := s.AddUser(ctx, "alice", store.RoleViewer, "$argon2id$x"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AddUser(ctx, "bob", store.RoleViewer, "$argon2id$x"); err != nil {
+		t.Fatal(err)
+	}
+	bob, _, _ := s.CreateSession(ctx, "bob", time.Hour)
+
+	var tokens []string
+	for range 25 {
+		token, _, err := s.CreateSession(ctx, "alice", time.Hour)
+		if err != nil {
+			t.Fatal(err)
+		}
+		tokens = append(tokens, token)
+	}
+	live := 0
+	for i, token := range tokens {
+		_, ok, err := s.AuthenticateSession(ctx, token)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if ok {
+			live++
+		}
+		if (i < 5) == ok {
+			t.Errorf("session %d: live=%v", i, ok)
+		}
+	}
+	if live != 20 {
+		t.Fatalf("%d live sessions", live)
+	}
+	// Another account is not touched.
+	if _, ok, _ := s.AuthenticateSession(ctx, bob); !ok {
+		t.Fatal("the session of another account was ended")
+	}
+}
