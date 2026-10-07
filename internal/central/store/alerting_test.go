@@ -149,12 +149,12 @@ func TestIncidentDetailIsTruncatedOnACharacter(t *testing.T) {
 	s := storetest.Open(t)
 	ctx := context.Background()
 	edge, _, _ := s.AddEdge(ctx, "paris")
-	detail := strings.Repeat("é", 400) // 800 bytes
+	detail := strings.Repeat("\u00e9", 400) // 800 bytes
 	if _, err := s.OpenIncident(ctx, store.IncidentCheck, "web", edge.ID, detail, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	got, _ := s.OpenIncidents(ctx)
-	if len(got) != 1 || len(got[0].Detail) > 512 || strings.ContainsRune(got[0].Detail, '�') {
+	if len(got) != 1 || len(got[0].Detail) > 512 || strings.ContainsRune(got[0].Detail, '\uFFFD') {
 		t.Fatalf("detail: %d bytes", len(got[0].Detail))
 	}
 }
