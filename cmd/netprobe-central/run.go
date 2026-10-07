@@ -91,8 +91,6 @@ func run(cfg serveConfig) error {
 	if err != nil {
 		return err
 	}
-	warnAboutSetup(ctx, log, st, cfg)
-
 	proxies, err := auth.ParseProxies(cfg.trustedProxies)
 	if err != nil {
 		return err
@@ -109,6 +107,7 @@ func run(cfg serveConfig) error {
 	if err != nil {
 		return err
 	}
+	warnAboutSetup(ctx, log, st, cfg, ui.SetupCode())
 	surfaces := []surface{
 		{name: "edge API", addr: cfg.edgeListen, srv: newServer(log, central.New(log, st, central.WithProxies(proxies)).Handler()), tls: edgeTLS},
 		{name: "UI API", addr: cfg.apiListen, srv: newServer(log, ui.Handler()), tls: apiTLS},
@@ -176,12 +175,12 @@ func newServer(log *slog.Logger, h http.Handler) *http.Server {
 }
 
 // warnAboutSetup says what an operator should know before the first request.
-func warnAboutSetup(ctx context.Context, log *slog.Logger, st *store.Store, cfg serveConfig) {
+func warnAboutSetup(ctx context.Context, log *slog.Logger, st *store.Store, cfg serveConfig, setupCode string) {
 	if edges, err := st.ListEdges(ctx); err == nil && !anyActive(edges) {
 		log.Warn("no edge is registered, every edge request will be refused: run 'netprobe-central edge add --name NAME'")
 	}
 	if users, err := st.ListUsers(ctx); err == nil && len(users) == 0 {
-		log.Warn("no user exists, nobody can sign in to the UI: run 'netprobe-central user add --username NAME --role admin'")
+		log.Warn("no user exists: open the UI to create the first administrator with this setup code, or run 'netprobe-central user add --username NAME --role admin'", "setup_code", setupCode)
 	}
 	if channels, err := st.ListChannels(ctx); err == nil && len(channels) == 0 {
 		log.Warn("no notification channel exists, incidents are recorded but nobody is told: add one from the UI or with 'netprobe-central channel add'")

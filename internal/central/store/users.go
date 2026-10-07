@@ -24,7 +24,12 @@ var (
 
 	// ErrLastAdmin is returned when a change would leave no administrator.
 	ErrLastAdmin = errors.New("this is the last administrator")
+	// ErrSetupDone is returned when the first administrator exists already.
+	ErrSetupDone = errors.New("the setup is already done")
 )
+
+// setupLock serialises the creation of the first administrator.
+const setupLock = 7_304_203
 
 // User is an account of the web UI. Its password hash never leaves the store
 // except through PasswordHash.
@@ -63,6 +68,44 @@ func (s *Store) AddUser(ctx context.Context, username, role, passwordHash string
 		return fmt.Errorf("add user: %w", err)
 	}
 	return nil
+}
+
+// HasUsers reports whether any account exists.
+func (s *Store) HasUsers(ctx context.Context) (bool, error) {
+	var has bool
+	if err := s.pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM users)`).Scan(&has); err != nil {
+		return false, fmt.Errorf("read users: %w", err)
+	}
+	return has, nil
+}
+
+// AddFirstAdmin creates the administrator of a central that has no account yet.
+// Two calls at once create one, and the other gets ErrSetupDone.
+func (s *Store) AddFirstAdmin(ctx context.Context, username, passwordHash string) error {
+	if err := ValidateUsername(username); err != nil {
+		return err
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("add first admin: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, setupLock); err != nil {
+		return fmt.Errorf("add first admin: %w", err)
+	}
+	var has bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM users)`).Scan(&has); err != nil {
+		return fmt.Errorf("add first admin: %w", err)
+	}
+	if has {
+		return ErrSetupDone
+	}
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO users (username, role, password_hash, created_at) VALUES ($1, $2, $3, $4)`,
+		username, RoleAdmin, passwordHash, time.Now().UTC()); err != nil {
+		return fmt.Errorf("add first admin: %w", err)
+	}
+	return tx.Commit(ctx)
 }
 
 // PasswordHash returns the account and its stored hash.

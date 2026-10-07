@@ -152,3 +152,28 @@ func TestDeletingAUserEndsItsSessions(t *testing.T) {
 		t.Fatal("a session outlived its user")
 	}
 }
+
+func TestFirstAdminIsCreatedOnlyWhileThereIsNoAccount(t *testing.T) {
+	s := storetest.Open(t)
+	ctx := context.Background()
+
+	if has, err := s.HasUsers(ctx); err != nil || has {
+		t.Fatalf("an empty database: %v, %v", has, err)
+	}
+	if err := s.AddFirstAdmin(ctx, "Not A Name", "$argon2id$x"); err == nil {
+		t.Fatal("an invalid username was accepted")
+	}
+	if err := s.AddFirstAdmin(ctx, "alice", "$argon2id$x"); err != nil {
+		t.Fatal(err)
+	}
+	if has, _ := s.HasUsers(ctx); !has {
+		t.Fatal("the first administrator is not there")
+	}
+	if err := s.AddFirstAdmin(ctx, "bob", "$argon2id$x"); !errors.Is(err, store.ErrSetupDone) {
+		t.Fatalf("a second first administrator: %v", err)
+	}
+	users, _ := s.ListUsers(ctx)
+	if len(users) != 1 || users[0].Username != "alice" || users[0].Role != store.RoleAdmin {
+		t.Fatalf("users: %+v", users)
+	}
+}

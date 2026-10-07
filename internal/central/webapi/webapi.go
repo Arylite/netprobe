@@ -52,8 +52,11 @@ type Server struct {
 	proxies auth.Proxies
 	hsts    bool
 
+	setupCode string
+
 	byIP     *auth.Limiter
 	byUserIP *auth.Limiter
+	bySetup  *auth.Limiter
 }
 
 // New builds the API on top of a store, or says why the settings are wrong.
@@ -74,20 +77,26 @@ func New(log *slog.Logger, st *store.Store, cfg Config) (*Server, error) {
 		}
 		sender = alert.NewWebhook(policy)
 	}
+	code, err := newSetupCode()
+	if err != nil {
+		return nil, err
+	}
 	set := make(map[string]bool, len(origins))
 	for _, o := range origins {
 		set[o] = true
 	}
 	return &Server{
-		log:      log,
-		store:    st,
-		origins:  set,
-		ttl:      ttl,
-		sender:   sender,
-		proxies:  cfg.TrustedProxies,
-		hsts:     cfg.HSTS,
-		byIP:     auth.NewLimiter(maxByIP, failureWindow),
-		byUserIP: auth.NewLimiter(maxByUserIP, failureWindow),
+		log:       log,
+		store:     st,
+		origins:   set,
+		ttl:       ttl,
+		sender:    sender,
+		proxies:   cfg.TrustedProxies,
+		hsts:      cfg.HSTS,
+		setupCode: code,
+		byIP:      auth.NewLimiter(maxByIP, failureWindow),
+		byUserIP:  auth.NewLimiter(maxByUserIP, failureWindow),
+		bySetup:   auth.NewLimiter(maxSetupFailures, setupWindow),
 	}, nil
 }
 
@@ -109,6 +118,7 @@ type caller struct {
 
 func (s *Server) routes() []route {
 	var all []route
+	all = append(all, s.setupRoutes()...)
 	all = append(all, s.sessionRoutes()...)
 	all = append(all, s.readRoutes()...)
 	all = append(all, s.adminRoutes()...)

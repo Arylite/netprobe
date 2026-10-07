@@ -19,6 +19,38 @@ paths:
       responses:
         "200":
           description: The OpenAPI document.
+  /api/v1/setup:
+    get:
+      summary: Whether the central still waits for its first account
+      security: []
+      responses:
+        "200":
+          description: The state of the setup.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SetupStatus" }
+    post:
+      summary: Create the first administrator
+      description: >
+        Works once, while no account exists. It needs the setup code that the
+        central writes to its log at start. Ten wrong codes, from anyone, close it
+        for 15 minutes (429). It answers a session, like login.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SetupRequest" }
+      responses:
+        "201":
+          description: The administrator, signed in.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Session" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "403": { description: The setup code is wrong. }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
   /api/v1/login:
     post:
       summary: Sign in
@@ -362,6 +394,18 @@ components:
       required: [error]
       properties:
         error: { type: string }
+    SetupStatus:
+      type: object
+      required: [required]
+      properties:
+        required: { type: boolean, description: "True while no account exists." }
+    SetupRequest:
+      type: object
+      required: [code, username, password]
+      properties:
+        code: { type: string, description: "The six digit code in the log of the central." }
+        username: { type: string }
+        password: { type: string, minLength: 12, maxLength: 128 }
     LoginRequest:
       type: object
       required: [username, password]
