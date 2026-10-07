@@ -1,0 +1,30 @@
+server {
+    listen 8080;
+    server_name _;
+    server_tokens off;
+
+    root /usr/share/nginx/html;
+    index index.html;
+
+    include /etc/nginx/security-headers.conf;
+    add_header Content-Security-Policy "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' ${NETPROBE_API_URL}; base-uri 'none'; form-action 'none'; frame-ancestors 'none'" always;
+
+    # Where the UI finds the UI API comes from the environment, not from a file.
+    location = /config.json {
+        include /etc/nginx/security-headers.conf;
+        add_header Cache-Control "no-store" always;
+        default_type application/json;
+        return 200 '{"apiUrl":"${NETPROBE_API_URL}"}';
+    }
+
+    # File names carry a hash: they never change.
+    location /assets/ {
+        expires max;
+        try_files $uri =404;
+    }
+
+    location / {
+        expires -1;
+        try_files $uri $uri/index.html =404;
+    }
+}

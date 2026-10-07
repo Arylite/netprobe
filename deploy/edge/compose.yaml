@@ -1,0 +1,28 @@
+# An edge, on the machine it measures from.
+#
+#   1. Register it in the UI (Edges, Add an edge) and save its token in ./edge_token
+#   2. Set NETPROBE_CENTRAL below, then: docker compose up -d
+#
+# Add `network_mode: host` to the service to measure from the network of the
+# machine itself rather than from a container network.
+
+name: netprobe-edge
+
+services:
+  edge:
+    image: ghcr.io/arylite/netprobe-edge:${NETPROBE_VERSION:-latest}
+    restart: unless-stopped
+    init: true
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 128
+    mem_limit: 128m
+    environment:
+      NETPROBE_CENTRAL: ${NETPROBE_CENTRAL:?set NETPROBE_CENTRAL to the https address of the central}
+      NETPROBE_TOKEN_FILE: /run/secrets/edge_token
+    secrets: [edge_token]
+
+secrets:
+  edge_token:
+    file: ./edge_token

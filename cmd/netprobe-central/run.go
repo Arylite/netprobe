@@ -195,7 +195,7 @@ func warnAboutSetup(ctx context.Context, log *slog.Logger, st *store.Store, cfg 
 		name, addr string
 		tls        bool
 	}{{"edge API", cfg.edgeListen, cfg.edgeTLSCert != ""}, {"UI API", cfg.apiListen, cfg.apiTLSCert != ""}} {
-		if !s.tls && !isLoopback(s.addr) {
+		if !s.tls && len(cfg.trustedProxies) == 0 && !isLoopback(s.addr) {
 			log.Warn("open to the network over plain HTTP: put a TLS proxy in front, tokens and passwords travel in clear otherwise", "surface", s.name, "addr", s.addr)
 		}
 	}

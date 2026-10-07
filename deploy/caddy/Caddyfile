@@ -1,0 +1,34 @@
+{$NETPROBE_DOMAIN:localhost} {
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		-Server
+	}
+
+	# To keep the UI and the UI API on a private network, and leave only the edge
+	# API on the internet, answer the next two blocks to private addresses only:
+	#   @private remote_ip private_ranges
+	#   handle @private { ... }
+
+	# What edges call.
+	@edge path /healthz /v1/*
+	handle @edge {
+		request_body {
+			max_size 2MB
+		}
+		reverse_proxy central:8080
+	}
+
+	# What the UI calls.
+	handle /api/* {
+		request_body {
+			max_size 2MB
+		}
+		reverse_proxy central:8081
+	}
+
+	handle {
+		reverse_proxy web:8080
+	}
+}
