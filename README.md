@@ -1,14 +1,50 @@
 # netprobe
 
+[![CI](https://github.com/Arylite/netprobe/actions/workflows/ci.yml/badge.svg)](https://github.com/Arylite/netprobe/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/Arylite/netprobe/actions/workflows/codeql.yml/badge.svg)](https://github.com/Arylite/netprobe/actions/workflows/codeql.yml)
+[![Release](https://img.shields.io/github/v/release/Arylite/netprobe?include_prereleases&sort=semver)](https://github.com/Arylite/netprobe/releases)
+[![License](https://img.shields.io/github/license/Arylite/netprobe)](LICENSE)
+[![Go](https://img.shields.io/github/go-mod/go-version/Arylite/netprobe?logo=go&logoColor=white)](go.mod)
+[![Images](https://img.shields.io/badge/images-ghcr.io-2496ED?logo=docker&logoColor=white)](https://github.com/Arylite?tab=packages&repo_name=netprobe)
+
 Network probing for a fleet of machines. **Edges** measure the network from where
 they are; a **central** assigns their checks, stores the results, alerts, and is
 managed from a web UI.
+
+![Go](https://img.shields.io/badge/Go-00ADD8?logo=go&logoColor=white)
+![React](https://img.shields.io/badge/React-20232A?logo=react&logoColor=61DAFB)
+![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-4169E1?logo=postgresql&logoColor=white)
+![TimescaleDB](https://img.shields.io/badge/TimescaleDB-FDB515?logo=timescale&logoColor=black)
+![Grafana](https://img.shields.io/badge/Grafana-F46800?logo=grafana&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-2496ED?logo=docker&logoColor=white)
+![Cloudflare](https://img.shields.io/badge/Cloudflare_Tunnel-F38020?logo=cloudflare&logoColor=white)
 
 Status: 1.0.0-rc.1. Edges poll the central, run their checks and report. The
 central opens an incident when a check keeps failing or an edge goes quiet, and
 tells webhooks. A web UI manages edges, checks, channels and users; Grafana
 reads the results. Everything lives in PostgreSQL with TimescaleDB, and both
 sides have a `doctor` command.
+
+## At a glance
+
+![Top language](https://img.shields.io/github/languages/top/Arylite/netprobe)
+![Code size](https://img.shields.io/github/languages/code-size/Arylite/netprobe)
+![Repository size](https://img.shields.io/github/repo-size/Arylite/netprobe)
+![Last commit](https://img.shields.io/github/last-commit/Arylite/netprobe)
+![Commit activity](https://img.shields.io/github/commit-activity/m/Arylite/netprobe)
+![Open issues](https://img.shields.io/github/issues/Arylite/netprobe)
+![Stars](https://img.shields.io/github/stars/Arylite/netprobe?style=flat)
+
+| | |
+|---|---|
+| **Binaries** | `netprobe-central`, `netprobe-edge`, for linux (amd64, arm64), macOS (arm64), windows (amd64) |
+| **Images** | `central`, `edge`, `web`, `db`, for amd64 and arm64, scanned before they are published |
+| **Checks** | TCP connect and HTTP request, every second at best |
+| **Storage** | PostgreSQL with TimescaleDB: compressed after 7 days, kept as long as you say |
+| **Alerts** | incidents from failing checks and silent edges, signed webhooks |
+| **Interfaces** | a web UI to manage it, three Grafana dashboards to look at it, a documented JSON API |
+| **Security** | TLS 1.3, client certificates, argon2id, encrypted secrets, audit trail |
 
 ## Try it
 
