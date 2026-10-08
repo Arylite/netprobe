@@ -2,7 +2,9 @@ package edge
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
+	"runtime/debug"
 	"sync"
 	"time"
 )
@@ -22,6 +24,7 @@ type Agent struct {
 func (a *Agent) Run(ctx context.Context) {
 	reporter := NewReporter(a.Client, a.ReportInterval, a.Log)
 	scheduler := NewScheduler(ctx, a.Measure, reporter.Add)
+	scheduler.log = a.Log
 
 	reporterCtx, stopReporter := context.WithCancel(context.Background())
 	var wg sync.WaitGroup
@@ -46,7 +49,16 @@ func (a *Agent) Run(ctx context.Context) {
 	}
 }
 
+// survive is deferred at the top of a step that must not take the edge down: a
+// bug there costs one round, which is logged, and the next one starts afresh.
+func survive(log *slog.Logger, step string) {
+	if r := recover(); r != nil {
+		log.Error("recovered from a panic", "step", step, "panic", fmt.Sprint(r), "stack", string(debug.Stack()))
+	}
+}
+
 func (a *Agent) poll(ctx context.Context, scheduler *Scheduler) {
+	defer survive(a.Log, "poll")
 	checks, changed, err := a.Client.Assignments(ctx)
 	switch {
 	case ctx.Err() != nil:

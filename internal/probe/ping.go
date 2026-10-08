@@ -9,6 +9,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/net/icmp"
@@ -114,6 +115,8 @@ func echo(ctx context.Context, ip netip.Addr) ([]time.Duration, error) {
 		dst = &net.UDPAddr{IP: ip.AsSlice()}
 	}
 	id := os.Getpid() & 0xffff
+	// sentAt is written by the sender and read by the reader below.
+	var sentMu sync.Mutex
 	sentAt := make([]time.Time, pingCount)
 	go func() {
 		for seq := range pingCount {
@@ -128,7 +131,9 @@ func echo(ctx context.Context, ip netip.Addr) ([]time.Duration, error) {
 			if err != nil {
 				return
 			}
+			sentMu.Lock()
 			sentAt[seq] = time.Now()
+			sentMu.Unlock()
 			if _, err := conn.WriteTo(b, dst); err != nil {
 				return
 			}
@@ -176,8 +181,14 @@ func echo(ctx context.Context, ip netip.Addr) ([]time.Duration, error) {
 		if !datagram && reply.ID != id {
 			continue
 		}
+		sentMu.Lock()
+		sent := sentAt[reply.Seq]
+		sentMu.Unlock()
+		if sent.IsZero() {
+			continue // an answer to an echo that was not sent yet is not an answer to ours
+		}
 		seen[reply.Seq] = true
-		rtts = append(rtts, now.Sub(sentAt[reply.Seq]))
+		rtts = append(rtts, now.Sub(sent))
 	}
 	return rtts, nil
 }

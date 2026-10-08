@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"strings"
@@ -34,7 +35,9 @@ func (p *Prober) Banner(ctx context.Context, target, expect string) Outcome {
 	if d, ok := ctx.Deadline(); ok {
 		_ = conn.SetDeadline(d)
 	}
-	line, err := bufio.NewReaderSize(conn, maxBanner).ReadString('\n')
+	// ReadString keeps reading until it finds the newline, whatever the size of the
+	// buffer: a service that never ends its line would fill the memory of the edge.
+	line, err := bufio.NewReaderSize(io.LimitReader(conn, maxBanner), maxBanner).ReadString('\n')
 	rtt := time.Since(start)
 	if line == "" {
 		if errors.Is(err, os.ErrDeadlineExceeded) {

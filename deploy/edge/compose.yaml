@@ -22,6 +22,9 @@ services:
     pids_limit: 128
     mem_limit: 128m
     environment:
+      # Below mem_limit, so that the garbage collector works harder before the
+      # kernel steps in.
+      GOMEMLIMIT: 96MiB
       NETPROBE_CENTRAL: ${NETPROBE_CENTRAL:?set NETPROBE_CENTRAL to the https address of the central}
       NETPROBE_TOKEN_FILE: /run/secrets/edge_token
     secrets: [edge_token]

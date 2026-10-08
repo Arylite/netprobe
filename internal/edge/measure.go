@@ -22,11 +22,15 @@ func ProbeMeasurer(p *probe.Prober) Measurer {
 			CheckID:   c.ID,
 			At:        at,
 			OK:        o.OK,
-			RTTMillis: float64(o.RTT) / float64(time.Millisecond),
+			RTTMillis: float64(clampRTT(o.RTT)) / float64(time.Millisecond),
 			Error:     clip(o.Err, api.MaxErrorLength),
 		}
 	}
 }
+
+// clampRTT keeps a round trip the central accepts: a probe that gets its
+// arithmetic wrong must not make a result nobody can store.
+func clampRTT(d time.Duration) time.Duration { return max(d, 0) }
 
 // clip cuts s to at most n bytes without splitting a character.
 func clip(s string, n int) string {

@@ -34,6 +34,13 @@ type StatusError struct {
 
 func (e *StatusError) Error() string { return e.Op + ": " + e.Status }
 
+// BatchError is a batch that cannot be sent as it is, because it is invalid or
+// cannot be encoded. Sending it again can only fail again.
+type BatchError struct{ Err error }
+
+func (e *BatchError) Error() string { return e.Err.Error() }
+func (e *BatchError) Unwrap() error { return e.Err }
+
 // Client talks to the edge API of the central.
 type Client struct {
 	base  *url.URL
@@ -133,11 +140,11 @@ func (c *Client) Assignments(ctx context.Context) (checks []api.Check, changed b
 func (c *Client) PostResults(ctx context.Context, results []api.Result) error {
 	payload := api.ResultsRequest{Results: results}
 	if err := payload.Validate(); err != nil {
-		return err
+		return &BatchError{Err: err}
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
-		return fmt.Errorf("encode results: %w", err)
+		return &BatchError{Err: fmt.Errorf("encode results: %w", err)}
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.base.JoinPath(api.PathResults).String(), bytes.NewReader(body))
 	if err != nil {

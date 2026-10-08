@@ -38,8 +38,14 @@ func NewReporter(post poster, interval time.Duration, log *slog.Logger) *Reporte
 	return &Reporter{post: post, interval: interval, log: log}
 }
 
-// Add queues one result; it is safe to call from several goroutines.
+// Add queues one result; it is safe to call from several goroutines. A result
+// the central would refuse is dropped here: queued, it would sit at the head of
+// every batch, and nothing behind it would ever be sent.
 func (r *Reporter) Add(res api.Result) {
+	if err := res.Validate(); err != nil {
+		r.log.Warn("result dropped, the central would refuse it", "err", err)
+		return
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.queue = append(r.queue, res)
@@ -64,6 +70,7 @@ func (r *Reporter) Run(ctx context.Context) {
 }
 
 func (r *Reporter) flush(ctx context.Context) {
+	defer survive(r.log, "report")
 	for {
 		batch := r.take()
 		if len(batch) == 0 {
@@ -83,9 +90,14 @@ func (r *Reporter) flush(ctx context.Context) {
 	}
 }
 
-// refused reports whether the central rejected the batch itself, so that
-// sending it again can only fail again.
+// refused reports whether the batch itself is the problem, the central rejecting
+// it or this side being unable to build it, so that sending it again can only
+// fail again.
 func refused(err error) bool {
+	var be *BatchError
+	if errors.As(err, &be) {
+		return true
+	}
 	var se *StatusError
 	if !errors.As(err, &se) {
 		return false

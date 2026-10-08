@@ -30,6 +30,9 @@ sequenceDiagram
 - **It only dials out.** It needs no open port. The poll is also its heartbeat.
 - **It keeps going without the central.** Up to 10,000 results wait in memory, the oldest going
   first, and are sent when the central is back.
+- **It stays up.** At most 64 measurements run at once (the others wait their turn), a server
+  that sends endless data is read for 512 bytes only, and a bug in one check is reported as that
+  check failing instead of stopping the others.
 - **Its token does not expire.** It works until you revoke the edge. (The 12 hours you may have
   seen is the length of a login to the web UI, not of an edge.)
 
