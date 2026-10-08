@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/net/icmp"
@@ -66,15 +67,18 @@ func (p *Prober) Ping(ctx context.Context, target, expect string) Outcome {
 	if err != nil {
 		return failure(0, err)
 	}
+	lost := pingCount - len(rtts)
 	if len(rtts) == 0 {
-		return Outcome{Err: fmt.Sprintf("no answer from %s", ip)}
+		if maxLoss < 100 {
+			return Outcome{Err: fmt.Sprintf("no answer from %s", ip)}
+		}
+		return Outcome{OK: true}
 	}
 	var sum time.Duration
 	for _, r := range rtts {
 		sum += r
 	}
 	mean := sum / time.Duration(len(rtts))
-	lost := pingCount - len(rtts)
 	if lost*100/pingCount > maxLoss {
 		return Outcome{RTT: mean, Err: fmt.Sprintf("%d of %d echoes lost", lost, pingCount)}
 	}
@@ -101,23 +105,43 @@ func resolveOne(ctx context.Context, host string) (netip.Addr, error) {
 	return ips[0], nil
 }
 
+// pingSeq makes the identifier of every run of echoes its own, so that runs
+// sharing the process do not take each other's answers for theirs.
+var pingSeq atomic.Uint32
+
+// pingConn is what echo needs of an ICMP socket.
+type pingConn interface {
+	ReadFrom(b []byte) (int, net.Addr, error)
+	WriteTo(b []byte, dst net.Addr) (int, error)
+	SetReadDeadline(t time.Time) error
+	Close() error
+}
+
 // echo sends the echoes and returns the round trip of each answer.
 func echo(ctx context.Context, ip netip.Addr) ([]time.Duration, error) {
-	v6 := ip.Is6()
-	conn, datagram, err := listenICMP(v6)
+	conn, datagram, err := listenICMP(ip.Is6())
 	if err != nil {
 		return nil, fmt.Errorf("ping is not allowed here: %w (see the guide on checks)", err)
 	}
 	defer func() { _ = conn.Close() }()
+	return exchange(ctx, conn, datagram, ip)
+}
 
+// exchange runs the echoes over an open socket.
+func exchange(ctx context.Context, conn pingConn, datagram bool, ip netip.Addr) ([]time.Duration, error) {
+	v6 := ip.Is6()
 	var dst net.Addr = &net.IPAddr{IP: ip.AsSlice()}
 	if datagram {
 		dst = &net.UDPAddr{IP: ip.AsSlice()}
 	}
-	id := os.Getpid() & 0xffff
-	// sentAt is written by the sender and read by the reader below.
-	var sentMu sync.Mutex
+	// A raw socket hears every echo reply of the host, those of the other checks
+	// too: the identifier tells the runs apart, and the source the targets.
+	id := int(pingSeq.Add(1)+uint32(os.Getpid())) & 0xffff
+
+	// sentAt and the rest are written by the sender and read by the reader.
+	var mu sync.Mutex
 	sentAt := make([]time.Time, pingCount)
+	var sendErr error
 	go func() {
 		for seq := range pingCount {
 			msg := icmp.Message{
@@ -131,10 +155,17 @@ func echo(ctx context.Context, ip netip.Addr) ([]time.Duration, error) {
 			if err != nil {
 				return
 			}
-			sentMu.Lock()
+			mu.Lock()
 			sentAt[seq] = time.Now()
-			sentMu.Unlock()
+			mu.Unlock()
 			if _, err := conn.WriteTo(b, dst); err != nil {
+				mu.Lock()
+				sendErr = err
+				first := seq == 0
+				mu.Unlock()
+				if first {
+					_ = conn.Close() // nothing is on its way: wake the reader now
+				}
 				return
 			}
 			select {
@@ -158,39 +189,69 @@ func echo(ctx context.Context, ip netip.Addr) ([]time.Duration, error) {
 	buf := make([]byte, 1500)
 	for len(rtts) < pingCount {
 		if err := conn.SetReadDeadline(end); err != nil {
-			return rtts, err
+			return rtts, sentOr(&mu, &sendErr, err)
 		}
-		n, _, err := conn.ReadFrom(buf)
+		n, from, err := conn.ReadFrom(buf)
 		if err != nil {
 			if errors.Is(err, os.ErrDeadlineExceeded) {
 				break
 			}
-			return rtts, err
+			return rtts, sentOr(&mu, &sendErr, err)
 		}
 		now := time.Now()
+		if src, ok := addrOf(from); !ok || src != ip.WithZone("") {
+			continue
+		}
 		m, err := icmp.ParseMessage(proto, buf[:n])
 		if err != nil || m.Type != want {
 			continue
 		}
 		reply, ok := m.Body.(*icmp.Echo)
-		// A ping socket gives the echo its own identifier: only the sequence
-		// and the payload tell it is ours.
 		if !ok || reply.Seq < 0 || reply.Seq >= pingCount || seen[reply.Seq] || string(reply.Data) != pingPayload {
 			continue
 		}
+		// A ping socket gives the echo its own identifier, and the kernel keeps
+		// the other sockets' answers out: only a raw socket needs the check.
 		if !datagram && reply.ID != id {
 			continue
 		}
-		sentMu.Lock()
+		mu.Lock()
 		sent := sentAt[reply.Seq]
-		sentMu.Unlock()
+		mu.Unlock()
 		if sent.IsZero() {
 			continue // an answer to an echo that was not sent yet is not an answer to ours
 		}
 		seen[reply.Seq] = true
 		rtts = append(rtts, now.Sub(sent))
 	}
+	if len(rtts) == 0 {
+		return rtts, sentOr(&mu, &sendErr, nil)
+	}
 	return rtts, nil
+}
+
+// sentOr prefers the error of the sender, the cause, to the one that it made
+// the reader see.
+func sentOr(mu *sync.Mutex, sendErr *error, err error) error {
+	mu.Lock()
+	defer mu.Unlock()
+	if *sendErr != nil {
+		return fmt.Errorf("sending the echo: %w", *sendErr)
+	}
+	return err
+}
+
+// addrOf reads the address a packet came from.
+func addrOf(a net.Addr) (netip.Addr, bool) {
+	var raw net.IP
+	switch a := a.(type) {
+	case *net.IPAddr:
+		raw = a.IP
+	case *net.UDPAddr:
+		raw = a.IP
+	}
+	ip, ok := netip.AddrFromSlice(raw)
+	return ip.Unmap(), ok
 }
 
 // listenICMP opens a ping socket, or a raw one when that is not allowed.

@@ -59,6 +59,9 @@ func (p *Prober) Download(ctx context.Context, target, expect string) Outcome {
 	if !spec.statusOK(res.StatusCode) {
 		return Outcome{RTT: time.Since(start), Err: "HTTP " + res.Status}
 	}
+	// The speed is the one of the transfer: the connection, the handshake and
+	// the wait for the first byte are the latency, not the bandwidth.
+	transfer := time.Now()
 	n, err := io.Copy(io.Discard, io.LimitReader(res.Body, maxDownload))
 	rtt := time.Since(start)
 	if err != nil {
@@ -70,7 +73,7 @@ func (p *Prober) Download(ctx context.Context, target, expect string) Outcome {
 	if n < minMeasurable {
 		return Outcome{RTT: rtt, Err: fmt.Sprintf("the file is %d bytes: too small to measure a speed", n)}
 	}
-	mbps := float64(n) * 8 / rtt.Seconds() / 1e6
+	mbps := float64(n) * 8 / max(time.Since(transfer).Seconds(), 1e-3) / 1e6
 	if mbps < minMbps {
 		return Outcome{RTT: rtt, Err: fmt.Sprintf("%.1f Mbit/s, under %g", mbps, minMbps)}
 	}

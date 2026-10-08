@@ -28,6 +28,7 @@ type answer struct {
 	from netip.Addr
 	typ  uint8
 	code uint8
+	port int // the destination port of the packet it answers; 0 when unknown
 }
 
 // trace sends UDP packets to the destination with a time to live of 1, 2, ...
@@ -64,7 +65,7 @@ func trace(ctx context.Context, dst netip.Addr, maxHops int) (route, error) {
 		if err := unix.Sendto(fd, []byte{0}, 0, to); err != nil {
 			return r, fmt.Errorf("send: %w", err)
 		}
-		a, ok := wait(ctx, fd, perHop)
+		a, ok := wait(ctx, fd, perHop, to.Port)
 		rtt := time.Since(start)
 		if !ok {
 			if silent++; silent >= darkHops {
@@ -98,8 +99,10 @@ func lastSeen(r route) string {
 	return "last answer from " + r.last.String()
 }
 
-// wait blocks until the socket has an ICMP error, or the time is up.
-func wait(ctx context.Context, fd int, timeout time.Duration) (answer, bool) {
+// wait blocks until the socket has an ICMP error for the packet sent to port, or
+// the time is up. The late answer of an earlier hop is not the answer of this
+// one: each hop has its own port, which the error carries back.
+func wait(ctx context.Context, fd int, timeout time.Duration, port int) (answer, bool) {
 	if d, ok := ctx.Deadline(); ok && time.Until(d) < timeout {
 		timeout = time.Until(d)
 	}
@@ -115,7 +118,7 @@ func wait(ctx context.Context, fd int, timeout time.Duration) (answer, bool) {
 			return answer{}, false
 		}
 		if n > 0 {
-			if a, ok := readError(fd); ok {
+			if a, ok := readError(fd); ok && (a.port == 0 || a.port == port) {
 				return a, true
 			}
 		}
@@ -135,13 +138,18 @@ func drain(fd int) {
 // readError takes one ICMP error from the queue, without waiting.
 func readError(fd int) (answer, bool) {
 	buf, oob := make([]byte, 1), make([]byte, 512)
-	_, oobn, _, _, err := unix.Recvmsg(fd, buf, oob, unix.MSG_ERRQUEUE|unix.MSG_DONTWAIT)
+	_, oobn, _, from, err := unix.Recvmsg(fd, buf, oob, unix.MSG_ERRQUEUE|unix.MSG_DONTWAIT)
 	if err != nil {
 		return answer{}, false
 	}
 	msgs, err := unix.ParseSocketControlMessage(oob[:oobn])
 	if err != nil {
 		return answer{}, false
+	}
+	// The name of the message is where the packet that failed was going.
+	port := 0
+	if sa, ok := from.(*unix.SockaddrInet4); ok {
+		port = sa.Port
 	}
 	for _, m := range msgs {
 		// struct sock_extended_err, then the sockaddr_in of the router.
@@ -153,7 +161,7 @@ func readError(fd int) (answer, bool) {
 		}
 		var ip [4]byte
 		copy(ip[:], m.Data[20:24])
-		return answer{from: netip.AddrFrom4(ip), typ: m.Data[5], code: m.Data[6]}, true
+		return answer{from: netip.AddrFrom4(ip), typ: m.Data[5], code: m.Data[6], port: port}, true
 	}
 	return answer{}, false
 }
