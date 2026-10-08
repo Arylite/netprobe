@@ -18,8 +18,9 @@ Environment=NETPROBE_TOKEN_FILE=%d/token
 
 DynamicUser=yes
 NoNewPrivileges=yes
-CapabilityBoundingSet=
-AmbientCapabilities=
+# CAP_NET_RAW alone: the icmp check needs it where ping_group_range does not allow the user.
+CapabilityBoundingSet=CAP_NET_RAW
+AmbientCapabilities=CAP_NET_RAW
 ProtectSystem=strict
 ProtectHome=yes
 PrivateTmp=yes
