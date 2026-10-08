@@ -1,7 +1,25 @@
+[Docs](README.md) / Set it up
+
 # Operating
 
-Backups, upgrades, and what to do when something is wrong. The commands run in the folder of
-`compose.yaml` (`/opt/netprobe` if the [script](install.md) installed it).
+Backups, upgrades, and what to do when something is wrong.
+
+> **Level:** intermediate | **You need:** a running stack
+
+The commands run in the folder of `compose.yaml` (`/opt/netprobe` if the [script](install.md)
+installed it).
+
+## Daily look
+
+```sh
+docker compose ps                       # every service should be healthy
+docker compose logs -f central          # what the central does
+docker compose exec central /netprobe-central doctor
+```
+
+`doctor` checks the database, TimescaleDB and the schema, the edges and checks, the edges that
+stopped reporting, the open incidents, whether the secrets of the channels are encrypted, the
+retention, and how each surface is exposed. It changes nothing. See [Command line](cli.md#doctor).
 
 ## What to keep
 
@@ -12,8 +30,8 @@ Backups, upgrades, and what to do when something is wrong. The commands run in t
 | The password and key of Grafana | the `grafana-secrets` volume | Grafana starts again with new ones; its own settings in `grafana-data` are not readable |
 | Your settings | `.env`, `compose.override.yaml`, `cloudflared_token` | you write them again |
 
-The names of the volumes start with the name of the project, the name of the folder: `netprobe_db-data`
-for `/opt/netprobe`.
+The names of the volumes start with the name of the project, the name of the folder:
+`netprobe_db-data` for `/opt/netprobe`.
 
 ## Back up
 
@@ -30,9 +48,11 @@ docker run --rm -v netprobe_secrets:/s:ro -v netprobe_grafana-secrets:/g:ro -v "
   sh -c 'tar czf /b/secrets-$(date +%F).tgz -C / s g'
 ```
 
-**Keep the two apart.** The dump holds the data and the channels (encrypted); the archive holds the key that
-opens them. Together they are everything. Store them where only you can read them. Take the dump on a
-schedule, for example from cron:
+> [!IMPORTANT]
+> **Keep the two apart.** The dump holds the data and the channels (encrypted); the archive holds
+> the key that opens them. Together they are everything. Store them where only you can read them.
+
+Take the dump on a schedule, for example from cron:
 
 ```sh
 0 3 * * *  cd /opt/netprobe && docker compose exec -T db pg_dump -U netprobe -Fc netprobe > /backups/netprobe-$(date +\%F).dump
@@ -62,11 +82,12 @@ docker compose exec -T db psql -U netprobe -d netprobe -c "SELECT timescaledb_po
 docker compose up -d
 ```
 
-The TimescaleDB steps (`pre_restore` and `post_restore`) are not optional: without them a restore of a
-hypertable fails or loses its policies. The central migrates the schema when it starts, so a dump from an
-older version restores into a newer one.
+The TimescaleDB steps (`pre_restore` and `post_restore`) are not optional: without them a restore
+of a hypertable fails or loses its policies. The central migrates the schema when it starts, so a
+dump from an older version restores into a newer one.
 
-Try a restore once, on another machine, **before** you need it.
+> [!TIP]
+> Try a restore once, on another machine, **before** you need it.
 
 ## Upgrade
 
@@ -74,15 +95,19 @@ Try a restore once, on another machine, **before** you need it.
 docker compose pull && docker compose up -d       # to the version in .env
 ```
 
-Change `NETPROBE_VERSION` in `.env` to move to another release (`1.0.0`, or `latest`); the script does it too:
-`sh install.sh central --version X.Y.Z`. The central applies its migrations when it starts and brings the
-TimescaleDB extension to the version of the server. A new major version of PostgreSQL is a dump and a restore,
-not an upgrade in place. Take a dump first, and read the notes of the release.
+Change `NETPROBE_VERSION` in `.env` to move to another release (`1.1.0`, or `latest`); the script
+does it too: `sh install.sh central --version X.Y.Z`. The central applies its migrations when it
+starts and brings the TimescaleDB extension to the version of the server. A new major version of
+PostgreSQL is a dump and a restore, not an upgrade in place. Take a dump first, and read the notes
+of the release.
 
-Edges are upgraded one by one, by the same script or by pulling the image again; an edge keeps working
-with a newer central, and learns a new kind of check only when it is upgraded: until then the result of that
-check is a failure that says `unsupported check kind`. (Edges of `1.0.0-rc.1` refuse the whole list when
-it holds a kind they do not know: upgrade them first.)
+Edges are upgraded one by one, by the same script or by pulling the image again. An edge keeps
+working with a newer central, and learns a new kind of check only when it is upgraded: until then
+the result of that check is a failure that says `unsupported check kind`.
+
+> [!NOTE]
+> Edges of `1.0.0-rc.1` refuse the whole list when it holds a kind they do not know: upgrade them
+> first.
 
 ## Lost the password of the administrator
 
@@ -92,27 +117,17 @@ From the machine of the central, with the password on its input, not on the comm
 printf '%s\n' 'a new long password' | docker compose exec -T central /netprobe-central user passwd --username alice
 ```
 
-It ends every session of that user. Without any administrator left, create one with `user add --role admin`.
-
-## Looking at it
-
-```sh
-docker compose ps                       # every service should be healthy
-docker compose logs -f central          # what the central does
-docker compose exec central /netprobe-central doctor
-```
-
-`doctor` checks the database, TimescaleDB and the schema, the edges and checks, the edges that stopped
-reporting, the open incidents, whether the secrets of the channels are encrypted, the retention, and how each
-surface is exposed. It changes nothing.
+It ends every session of that user. Without any administrator left, create one with
+`user add --role admin`.
 
 ## When something is wrong
 
-| You see | It is | Do |
+| You see | It means | Do |
 |---|---|---|
 | `setup_code` does not appear in the log | the central is already set up | sign in, or `user add` to make an account |
 | Caddy cannot get a certificate | the name does not point at the server, or 80/443 are closed | `docker compose logs proxy`; with a tunnel, there is nothing to get |
 | The UI loads but the login fails with a network error | `NETPROBE_PUBLIC_URL` is not the address you use | fix it in `.env`, `docker compose up -d` |
+| You are asked to sign in again after 12 hours | a login to the web UI lasts 12 hours by default | sign in; change it with `NETPROBE_SESSION_TTL` |
 | Edges say `the central refused the token` | revoked, or from another central | add the edge again |
 | An edge is **Silent** | it stopped for more than 5 minutes | the machine, its network or its clock: `netprobe-edge doctor` |
 | Grafana says `no data` | the data source cannot read, or the range is empty | **Connections**, **Data sources**, **Save & test**; widen the range |
@@ -123,5 +138,10 @@ surface is exposed. It changes nothing.
 
 ## Removing it
 
-`docker compose down` stops it and keeps the volumes. `docker compose down -v` deletes the database and the
-secrets: only after a backup. With the script: `sh install.sh uninstall central [--purge]`.
+`docker compose down` stops it and keeps the volumes. `docker compose down -v` deletes the
+database and the secrets: only after a backup. With the script:
+`sh install.sh uninstall central [--purge]`.
+
+---
+
+Previous: [Deploying](deploy.md) | Next: [Architecture](architecture.md)
